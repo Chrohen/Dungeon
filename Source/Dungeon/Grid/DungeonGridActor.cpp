@@ -68,6 +68,16 @@ void ADungeonGridActor::BuildFromConfig(UBattlefieldConfig* InConfig)
 		}
 	}
 
+	// Высота поверхности пола в пространстве меша. Берётся у меша DefaultTileType и общая для всех
+	// типов тайлов: все меши набора стоят на одной плите (низ меша в нуле), а Max.Z меша с
+	// выступающими частями (сталагмит) равен высоте этих частей, а не пола. Если у типа по умолчанию
+	// нет меша, берётся верх меша самого типа
+	TOptional<float> FloorTop;
+	if (InConfig->DefaultTileType != nullptr && InConfig->DefaultTileType->Mesh != nullptr)
+	{
+		FloorTop = static_cast<float>(InConfig->DefaultTileType->Mesh->GetBoundingBox().Max.Z);
+	}
+
 	for (const TPair<UTileTypeDefinition*, TArray<FIntPoint>>& Pair : TilesByType)
 	{
 		UTileTypeDefinition* Type = Pair.Key;
@@ -84,8 +94,8 @@ void ADungeonGridActor::BuildFromConfig(UBattlefieldConfig* InConfig)
 		Ism->SetupAttachment(GetRootComponent());
 		Ism->RegisterComponent();
 
-		// Верх тайла должен лежать на Z = 0
-		const float TopOffset = static_cast<float>(Mesh->GetBoundingBox().Max.Z);
+		// Поверхность пола должна лежать на Z = 0
+		const float TopOffset = FloorTop.Get(static_cast<float>(Mesh->GetBoundingBox().Max.Z));
 		for (const FIntPoint& Coord : Pair.Value)
 		{
 			FVector Location = GridToLocal(Coord);

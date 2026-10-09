@@ -6,7 +6,10 @@
 #include "Core/DungeonCollision.h"
 #include "Data/BattlefieldConfig.h"
 #include "Data/TileTypeDefinition.h"
+#include "Components/InstancedStaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Grid/DungeonGridActor.h"
+#include "Tests/BattleTestHelpers.h"
 
 // Проверяет преобразование клеток и мира без уровня: актёр создаётся вне мира, тайлы без мешей
 BEGIN_DEFINE_SPEC(FGridActorSpec, "Dungeon.Grid.Actor",
@@ -14,6 +17,9 @@ BEGIN_DEFINE_SPEC(FGridActorSpec, "Dungeon.Grid.Actor",
 	TStrongObjectPtr<UTileTypeDefinition> Floor;
 	TStrongObjectPtr<UBattlefieldConfig> Config;
 	TStrongObjectPtr<ADungeonGridActor> Grid;
+
+	// Мир нужен только тестам мешей: компоненты ISM регистрируются в мире
+	FBattleTestWorld MeshWorld;
 END_DEFINE_SPEC(FGridActorSpec)
 
 void FGridActorSpec::Define()
@@ -106,6 +112,62 @@ void FGridActorSpec::Define()
 			TestEqual("Extent X", PickPlane->GetUnscaledBoxExtent().X, 200.0);
 			TestEqual("Extent Y", PickPlane->GetUnscaledBoxExtent().Y, 150.0);
 		}
+	});
+
+	Describe("tile meshes", [this]()
+	{
+		BeforeEach([this]()
+		{
+			MeshWorld.Create();
+		});
+
+		AfterEach([this]()
+		{
+			MeshWorld.Destroy();
+		});
+
+		It("puts the floor surface of every tile type on Z = 0, even for a mesh with a tall part", [this]()
+		{
+			// Пол высотой 26 и тайл с выступом высотой 200 на такой же плите
+			auto MakeMesh = [](double Height)
+			{
+				UStaticMesh* Mesh = NewObject<UStaticMesh>();
+				Mesh->SetExtendedBounds(FBoxSphereBounds(FBox(FVector(-50.0, -50.0, 0.0), FVector(50.0, 50.0, Height))));
+				return Mesh;
+			};
+			TStrongObjectPtr<UStaticMesh> FloorMesh(MakeMesh(26.0));
+			TStrongObjectPtr<UStaticMesh> SpikeMesh(MakeMesh(200.0));
+
+			TStrongObjectPtr<UTileTypeDefinition> FloorType(NewObject<UTileTypeDefinition>());
+			FloorType->Mesh = FloorMesh.Get();
+			TStrongObjectPtr<UTileTypeDefinition> SpikeType(NewObject<UTileTypeDefinition>());
+			SpikeType->bPassable = false;
+			SpikeType->Mesh = SpikeMesh.Get();
+
+			FTileOverride Override;
+			Override.Coord = FIntPoint(1, 1);
+			Override.Type = SpikeType.Get();
+
+			UBattlefieldConfig* MeshConfig = MeshWorld.GetConfig();
+			MeshConfig->TileOverrides = { Override };
+			MeshConfig->DefaultTileType = FloorType.Get();
+			MeshWorld.GetGrid()->BuildFromConfig(MeshConfig);
+
+			int32 TypesChecked = 0;
+			for (const UActorComponent* Component : MeshWorld.GetGrid()->GetComponents())
+			{
+				const UInstancedStaticMeshComponent* Ism = Cast<UInstancedStaticMeshComponent>(Component);
+				if (Ism == nullptr || Ism->GetInstanceCount() == 0)
+				{
+					continue;
+				}
+				FTransform Instance;
+				Ism->GetInstanceTransform(0, Instance, /*bWorldSpace=*/false);
+				TestEqual(FString::Printf(TEXT("Z of %s"), *GetNameSafe(Ism->GetStaticMesh())), Instance.GetLocation().Z, -26.0);
+				++TypesChecked;
+			}
+			TestEqual("tile types with meshes", TypesChecked, 2);
+		});
 	});
 }
 
