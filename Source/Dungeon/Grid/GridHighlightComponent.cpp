@@ -2,6 +2,7 @@
 #include "Grid/DungeonGridActor.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -56,10 +57,29 @@ void UGridHighlightComponent::EnsureInstances()
 	if (HoverInstances == nullptr)
 	{
 		HoverInstances = CreateInstances(TEXT("HoverInstances"));
+		WarnIfMaterialUnusable(HoverMaterial, TEXT("HoverMaterial"));
 	}
 	if (ReachableInstances == nullptr)
 	{
 		ReachableInstances = CreateInstances(TEXT("ReachableInstances"));
+		WarnIfMaterialUnusable(ReachableMaterial, TEXT("ReachableMaterial"));
+	}
+}
+
+void UGridHighlightComponent::WarnIfMaterialUnusable(const UMaterialInterface* Material, const TCHAR* PropertyName) const
+{
+	// Без материала или без флага Used with Instanced Static Meshes движок рисует плоскость
+	// материалом по умолчанию (серая пластина)
+	if (Material == nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("UGridHighlightComponent: %s is not set, the highlight uses the default grey material."), PropertyName);
+		return;
+	}
+	const UMaterial* BaseMaterial = Material->GetMaterial();
+	if (BaseMaterial != nullptr && !BaseMaterial->bUsedWithInstancedStaticMeshes)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("UGridHighlightComponent: %s (%s) lacks 'Used with Instanced Static Meshes'. Enable it in the material (Details > Usage), otherwise the default grey material is drawn."),
+			PropertyName, *GetNameSafe(BaseMaterial));
 	}
 }
 

@@ -52,6 +52,9 @@ private:
 
 	UInstancedStaticMeshComponent* CreateInstances(const TCHAR* Name);
 
+	// Пишет ошибку в лог, если материал не задан или не подходит для ISM
+	void WarnIfMaterialUnusable(const UMaterialInterface* Material, const TCHAR* PropertyName) const;
+
 	void FillInstances(UInstancedStaticMeshComponent* Instances, UMaterialInterface* Material, const TArray<FIntPoint>& Tiles);
 
 	UPROPERTY(Transient)
