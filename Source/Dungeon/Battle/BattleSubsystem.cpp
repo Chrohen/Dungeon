@@ -1,4 +1,5 @@
 #include "Battle/BattleSubsystem.h"
+#include "Battle/BattleAction.h"
 #include "Battle/BattlePhases.h"
 #include "Data/BattlefieldConfig.h"
 #include "Data/UnitDefinition.h"
@@ -62,6 +63,22 @@ void UBattleSubsystem::StartBattle(UBattlefieldConfig* InConfig, ADungeonGridAct
 	}
 
 	TransitionTo(EBattlePhase::Preparation);
+}
+
+EBattleActionResult UBattleSubsystem::TryExecute(UBattleAction* Action)
+{
+	if (Action == nullptr)
+	{
+		UE_LOG(LogDungeonBattle, Warning, TEXT("TryExecute: Action is null."));
+		return EBattleActionResult::InvalidUnit;
+	}
+
+	const EBattleActionResult CheckResult = Action->CanExecute(*this);
+	if (CheckResult == EBattleActionResult::Success)
+	{
+		Action->Execute(*this);
+	}
+	return CheckResult;
 }
 
 void UBattleSubsystem::EndPlayerTurn()

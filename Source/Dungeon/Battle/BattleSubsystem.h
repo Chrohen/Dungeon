@@ -8,6 +8,7 @@
 class ADungeonGridActor;
 class ADungeonUnit;
 class AHeroUnit;
+class UBattleAction;
 class UBattlePhase;
 class UBattlefieldConfig;
 class UUnitDefinition;
@@ -31,6 +32,10 @@ public:
 
 	// Сбрасывает состояние, создаёт фазы и запускает Preparation
 	void StartBattle(UBattlefieldConfig* InConfig, ADungeonGridActor* InGrid);
+
+	// Вызывает CanExecute, затем Execute, если проверка вернула Success. Возвращает результат проверки.
+	// Ссылку на действие не хранит. Для пустого действия возвращает InvalidUnit
+	EBattleActionResult TryExecute(UBattleAction* Action);
 
 	// Работает только в PlayerTurn: вызывает AdvancePhase(). В других фазах ничего не делает
 	void EndPlayerTurn();

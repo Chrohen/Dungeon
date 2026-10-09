@@ -44,6 +44,9 @@ public:
 	TArray<int32> StartedTurns;
 	TArray<TWeakObjectPtr<ADungeonUnit>> SpawnedUnits;
 	int32 UnitMovedCount = 0;
+	TArray<TWeakObjectPtr<ADungeonUnit>> MovedUnits;
+	TArray<FIntPoint> MovedFrom;
+	TArray<FIntPoint> MovedTo;
 	TArray<EBattleResult> EndedResults;
 
 	void Reset();
@@ -78,12 +81,16 @@ public:
 	// Определение героя с UnitClass = AHeroUnit и MovePoints = 5
 	UUnitDefinition* MakeHeroDefinition();
 
+	// Ставит непроходимые тайлы (TileOverrides) и перестраивает поле. Вызывать до StartBattle
+	void BuildWalls(const TArray<FIntPoint>& Cells);
+
 	// Количество актёров юнитов в мире
 	int32 CountUnitActors() const;
 
 private:
 	TStrongObjectPtr<UWorld> World;
 	TStrongObjectPtr<UTileTypeDefinition> Floor;
+	TStrongObjectPtr<UTileTypeDefinition> Wall;
 	TStrongObjectPtr<UBattlefieldConfig> Config;
 	TArray<TStrongObjectPtr<UUnitDefinition>> Definitions;
 	ADungeonGridActor* Grid = nullptr;

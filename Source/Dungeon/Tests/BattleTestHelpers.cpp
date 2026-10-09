@@ -28,6 +28,9 @@ void UBattleEventRecorder::HandleUnitSpawned(ADungeonUnit* Unit)
 void UBattleEventRecorder::HandleUnitMoved(ADungeonUnit* Unit, FIntPoint From, FIntPoint To)
 {
 	++UnitMovedCount;
+	MovedUnits.Add(Unit);
+	MovedFrom.Add(From);
+	MovedTo.Add(To);
 }
 
 void UBattleEventRecorder::HandleBattleEnded(EBattleResult Result)
@@ -41,6 +44,9 @@ void UBattleEventRecorder::Reset()
 	StartedTurns.Reset();
 	SpawnedUnits.Reset();
 	UnitMovedCount = 0;
+	MovedUnits.Reset();
+	MovedFrom.Reset();
+	MovedTo.Reset();
 	EndedResults.Reset();
 }
 
@@ -77,6 +83,9 @@ void FBattleTestWorld::Create()
 	Floor->bPassable = true;
 	Floor->MoveCost = 1;
 
+	Wall.Reset(NewObject<UTileTypeDefinition>());
+	Wall->bPassable = false;
+
 	Config.Reset(NewObject<UBattlefieldConfig>());
 	Config->Width = 8;
 	Config->Height = 8;
@@ -111,7 +120,21 @@ void FBattleTestWorld::Destroy()
 	World.Reset();
 	Config.Reset();
 	Floor.Reset();
+	Wall.Reset();
 	Definitions.Reset();
+}
+
+void FBattleTestWorld::BuildWalls(const TArray<FIntPoint>& Cells)
+{
+	Config->TileOverrides.Reset();
+	for (const FIntPoint& Cell : Cells)
+	{
+		FTileOverride TileOverride;
+		TileOverride.Coord = Cell;
+		TileOverride.Type = Wall.Get();
+		Config->TileOverrides.Add(TileOverride);
+	}
+	Grid->BuildFromConfig(Config.Get());
 }
 
 UBattleSubsystem* FBattleTestWorld::GetBattle() const
