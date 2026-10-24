@@ -205,6 +205,40 @@ void FGridModelSpec::Define()
 		});
 	});
 
+	Describe("UnitId", [this]()
+	{
+		It("defaults to INDEX_NONE", [this]()
+		{
+			TestEqual("UnitId", FGridOccupant().UnitId, static_cast<int32>(INDEX_NONE));
+		});
+
+		It("is kept by PlaceUnit and MoveUnit", [this]()
+		{
+			FGridOccupant Occupant = MakeOccupant(EUnitTeam::Monster);
+			Occupant.UnitId = 7;
+			Model.PlaceUnit(Occupant, FIntPoint(0, 0));
+			TestEqual("after PlaceUnit", Model.GetOccupant(FIntPoint(0, 0))->UnitId, 7);
+
+			TestTrue("MoveUnit", Model.MoveUnit(FIntPoint(0, 0), FIntPoint(3, 2)));
+			TestEqual("after MoveUnit", Model.GetOccupant(FIntPoint(3, 2))->UnitId, 7);
+		});
+
+		It("is kept in a copy of the model and the copy is independent", [this]()
+		{
+			FGridOccupant Occupant = MakeOccupant(EUnitTeam::Hero);
+			Occupant.UnitId = 3;
+			Model.PlaceUnit(Occupant, FIntPoint(1, 1));
+
+			FGridModel Copy = Model;
+			TestEqual("copy keeps UnitId", Copy.GetOccupant(FIntPoint(1, 1))->UnitId, 3);
+
+			Copy.MoveUnit(FIntPoint(1, 1), FIntPoint(2, 2));
+			TestEqual("copy moved", Copy.GetOccupant(FIntPoint(2, 2))->UnitId, 3);
+			TestEqual("original keeps UnitId", Model.GetOccupant(FIntPoint(1, 1))->UnitId, 3);
+			TestFalse("original is not affected", Model.IsOccupied(FIntPoint(2, 2)));
+		});
+	});
+
 	Describe("RemoveUnit", [this]()
 	{
 		It("frees the cell and ignores empty cells", [this]()
