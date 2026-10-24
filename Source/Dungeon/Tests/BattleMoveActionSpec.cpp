@@ -1,11 +1,14 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include "Abilities/AbilityRules.h"
 #include "Battle/BattleSubsystem.h"
 #include "Battle/MoveAction.h"
 #include "Components/CapsuleComponent.h"
+#include "Data/MonsterDefinition.h"
 #include "Data/UnitDefinition.h"
 #include "Grid/DungeonGridActor.h"
+#include "Tests/AbilityTestHelpers.h"
 #include "Tests/BattleTestHelpers.h"
 #include "Units/DungeonUnit.h"
 #include "Units/HeroUnit.h"
@@ -212,8 +215,10 @@ void FBattleMoveActionSpec::Define()
 
 		It("returns InvalidPhase when it is not the player's turn", [this]()
 		{
+			// Ноль волн и ни одного монстра: бой заканчивается победой при входе в первый ход игрока
+			TestWorld.SetWaves({}, 0);
 			if (!StartBattle()) return;
-			Battle->FinishBattle(EBattleResult::Victory);
+			TestEqual("phase", Battle->GetCurrentPhase(), EBattlePhase::Finished);
 			TestEqual("result", Battle->TryExecute(MakeAction(GetHero(), FIntPoint(1, 3))), EBattleActionResult::InvalidPhase);
 		});
 	});
@@ -231,6 +236,173 @@ void FBattleMoveActionSpec::Define()
 			TestEqual("GridPosition", Hero->GridPosition, FIntPoint(1, 2));
 			TestTrue("CanMove", Hero->CanMove());
 			TestEqual("OnUnitMoved count", Recorder->UnitMovedCount, 0);
+		});
+	});
+
+	Describe("Dead units and phases", [this]()
+	{
+		It("returns InvalidUnit for a dead unit", [this]()
+		{
+			if (!StartBattle()) return;
+			// KillUnit закрыт: монстр убивает героя ударом через ExecuteAbilityInternal
+			UAbilityDefinition* Deadly = TestWorld.MakeAbility({ AbilityTest::MakeDamage(99) });
+			AMonsterUnit* Killer = TestWorld.SpawnMonster(FIntPoint(1, 3), 1, Deadly);
+			ADungeonUnit* Hero = GetHero();
+			FAbilityCast Cast;
+			TestTrue("MakeCast", FAbilityRules::MakeCast(Battle->MakeSimState(), Killer->UnitId, Killer->GetAbilities()[0].Ability, Hero->GridPosition, Cast));
+			Battle->ExecuteAbilityInternal(Killer, 0, Cast);
+			TestFalse("the hero is dead", Hero->IsAlive());
+
+			TestEqual("result", Battle->TryExecute(MakeAction(Hero, FIntPoint(1, 4))), EBattleActionResult::InvalidUnit);
+			TestEqual("the cell is free", Battle->GetGrid()->GetModel().IsOccupied(FIntPoint(1, 4)), false);
+		});
+
+		It("checks the unit before the team and the move flag", [this]()
+		{
+			if (!StartBattle()) return;
+			UAbilityDefinition* Deadly = TestWorld.MakeAbility({ AbilityTest::MakeDamage(99) });
+			AMonsterUnit* Victim = TestWorld.SpawnMonster(FIntPoint(5, 5), 1);
+			AMonsterUnit* Killer = TestWorld.SpawnMonster(FIntPoint(5, 6), 1, Deadly);
+			FAbilityCast Cast;
+			FAbilityRules::MakeCast(Battle->MakeSimState(), Killer->UnitId, Killer->GetAbilities()[0].Ability, Victim->GridPosition, Cast);
+			Battle->ExecuteAbilityInternal(Killer, 0, Cast);
+			Victim->MarkMoved();
+
+			// Погибший монстр: InvalidUnit раньше NotPlayerUnit и AlreadyMoved
+			TestEqual("result", MakeAction(Victim, FIntPoint(5, 4))->CanExecute(*Battle), EBattleActionResult::InvalidUnit);
+		});
+
+		It("returns InvalidPhase for a hero outside PlayerTurn and MonstersMove", [this]()
+		{
+			if (!StartBattle()) return;
+			ADungeonUnit* Hero = GetHero();
+			TMap<EBattlePhase, EBattleActionResult> Results;
+			Recorder->PhaseHook = [&](EBattlePhase Phase)
+			{
+				if (Phase == EBattlePhase::ResolveIntents || Phase == EBattlePhase::WaveSpawn || Phase == EBattlePhase::MonstersIntent)
+				{
+					Results.Add(Phase, Battle->TryExecute(MakeAction(Hero, FIntPoint(1, 3))));
+				}
+			};
+
+			Battle->EndPlayerTurn();
+
+			TestEqual("phases checked", Results.Num(), 3);
+			for (const TPair<EBattlePhase, EBattleActionResult>& Pair : Results)
+			{
+				TestEqual(FString::Printf(TEXT("phase %d"), static_cast<int32>(Pair.Key)), Pair.Value, EBattleActionResult::InvalidPhase);
+			}
+			TestEqual("GridPosition", Hero->GridPosition, FIntPoint(1, 2));
+		});
+
+		It("returns NotPlayerUnit for a hero in MonstersMove", [this]()
+		{
+			if (!StartBattle()) return;
+			ADungeonUnit* Hero = GetHero();
+			TOptional<EBattleActionResult> Result;
+			Recorder->PhaseHook = [&](EBattlePhase Phase)
+			{
+				if (Phase == EBattlePhase::MonstersMove)
+				{
+					Result = Battle->TryExecute(MakeAction(Hero, FIntPoint(1, 3)));
+				}
+			};
+
+			Battle->EndPlayerTurn();
+
+			TestTrue("checked", Result.IsSet());
+			if (Result.IsSet())
+			{
+				TestEqual("result", Result.GetValue(), EBattleActionResult::NotPlayerUnit);
+			}
+			TestEqual("GridPosition", Hero->GridPosition, FIntPoint(1, 2));
+		});
+	});
+
+	Describe("Execute events", [this]()
+	{
+		It("sends OnUnitChanged and rebuilds the intent views", [this]()
+		{
+			if (!StartBattle()) return;
+			ADungeonUnit* Hero = GetHero();
+
+			TestEqual("result", Battle->TryExecute(MakeAction(Hero, FIntPoint(3, 3))), EBattleActionResult::Success);
+
+			TestEqual("OnUnitChanged count", Recorder->ChangedUnits.Num(), 1);
+			if (Recorder->ChangedUnits.Num() == 1)
+			{
+				TestTrue("Unit", Recorder->ChangedUnits[0].Get() == Hero);
+			}
+			TestEqual("OnIntentsChanged count", Recorder->IntentsChangedCount, 1);
+		});
+
+		It("sends no OnUnitChanged and no OnIntentsChanged when the check fails", [this]()
+		{
+			if (!StartBattle()) return;
+			TestEqual("result", Battle->TryExecute(MakeAction(GetHero(), FIntPoint(7, 7))), EBattleActionResult::Unreachable);
+			TestEqual("OnUnitChanged count", Recorder->ChangedUnits.Num(), 0);
+			TestEqual("OnIntentsChanged count", Recorder->IntentsChangedCount, 0);
+		});
+	});
+
+	Describe("Monsters in MonstersMove", [this]()
+	{
+		It("moves toward the heroes through UMoveAction in MonstersMove", [this]()
+		{
+			if (!Battle)
+			{
+				AddError("No subsystem");
+				return;
+			}
+			TestWorld.GetConfig()->MonsterSpawnArea = FGridArea{ 7, 7, 1, 1 };
+			TestWorld.SetWaves({ TestWorld.MakeMonsterDefinition(1, 3) }, 5);
+			Battle->StartBattle(TestWorld.GetConfig(), TestWorld.GetGrid());
+
+			TestEqual("OnUnitMoved count", Recorder->UnitMovedCount, 1);
+			if (Recorder->UnitMovedCount == 1)
+			{
+				TestTrue("a monster", Cast<AMonsterUnit>(Recorder->MovedUnits[0].Get()) != nullptr);
+				TestEqual("From", Recorder->MovedFrom[0], FIntPoint(7, 7));
+				TestEqual("the phase of the event", Recorder->MovedPhases[0], EBattlePhase::MonstersMove);
+				TestTrue("within the move points", FAbilityRules::Distance(Recorder->MovedFrom[0], Recorder->MovedTo[0]) <= 3);
+				TestTrue("closer to the heroes", FAbilityRules::Distance(Recorder->MovedTo[0], FIntPoint(3, 1)) < FAbilityRules::Distance(FIntPoint(7, 7), FIntPoint(3, 1)));
+			}
+			TestEqual("the monsters are on the field", Battle->GetLivingMonsters().Num(), 1);
+			TestTrue("the move is spent", Battle->GetLivingMonsters()[0]->TurnState.bHasMoved);
+			TestTrue("OnUnitChanged", Recorder->ChangedUnits.Num() > 0);
+		});
+
+		It("leaves a monster without move points in place", [this]()
+		{
+			if (!Battle)
+			{
+				AddError("No subsystem");
+				return;
+			}
+			TestWorld.GetConfig()->MonsterSpawnArea = FGridArea{ 7, 7, 1, 1 };
+			TestWorld.SetWaves({ TestWorld.MakeMonsterDefinition(1, 0) }, 5);
+			Battle->StartBattle(TestWorld.GetConfig(), TestWorld.GetGrid());
+
+			TestEqual("OnUnitMoved count", Recorder->UnitMovedCount, 0);
+			TestEqual("the monster stays", Battle->GetLivingMonsters()[0]->GridPosition, FIntPoint(7, 7));
+		});
+
+		It("lets the monster move again on the next turn", [this]()
+		{
+			if (!Battle)
+			{
+				AddError("No subsystem");
+				return;
+			}
+			TestWorld.GetConfig()->MonsterSpawnArea = FGridArea{ 7, 7, 1, 1 };
+			TestWorld.SetWaves({ TestWorld.MakeMonsterDefinition(1, 3) }, 1);
+			Battle->StartBattle(TestWorld.GetConfig(), TestWorld.GetGrid());
+			const FIntPoint AfterFirstTurn = Battle->GetLivingMonsters()[0]->GridPosition;
+
+			Battle->EndPlayerTurn();
+
+			TestEqual("OnUnitMoved count", Recorder->UnitMovedCount, 2);
+			TestTrue("the monster went on", Battle->GetLivingMonsters()[0]->GridPosition != AfterFirstTurn);
 		});
 	});
 }

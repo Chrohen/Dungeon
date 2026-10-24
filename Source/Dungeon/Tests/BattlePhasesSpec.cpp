@@ -7,6 +7,7 @@
 #include "Tests/BattleTestHelpers.h"
 #include "Units/DungeonUnit.h"
 #include "Units/HeroUnit.h"
+#include "Data/MonsterDefinition.h"
 #include "Data/UnitDefinition.h"
 
 BEGIN_DEFINE_SPEC(FBattlePhasesSpec, "Dungeon.Battle.Phases",
@@ -102,14 +103,28 @@ void FBattlePhasesSpec::Define()
 			TestEqual("phase", Battle->GetCurrentPhase(), EBattlePhase::PlayerTurn);
 			TestTrue("IsPlayerTurn", Battle->IsPlayerTurn());
 			TestEqual("turn", Battle->GetTurnNumber(), 1);
-			TestEqual("TotalWaves", Battle->GetTotalWaves(), 5);
-			TestEqual("CurrentWave", Battle->GetCurrentWave(), 0);
+			TestEqual("TotalWaves", Battle->GetTotalWaves(), 100);
+			TestEqual("CurrentWave", Battle->GetCurrentWave(), 1);
 			TestEqual("Result", Battle->GetResult(), EBattleResult::None);
 			TestEqual("OnTurnStarted count", Recorder->StartedTurns.Num(), 1);
 			if (Recorder->StartedTurns.Num() == 1)
 			{
 				TestEqual("OnTurnStarted value", Recorder->StartedTurns[0], 1);
 			}
+		});
+
+		It("sends OnBattleStarted once, before the first OnPhaseChanged", [this]()
+		{
+			if (!Battle)
+			{
+				AddError("No subsystem");
+				return;
+			}
+			Battle->StartBattle(TestWorld.GetConfig(), TestWorld.GetGrid());
+
+			TestEqual("OnBattleStarted count", Recorder->BattleStartedCount, 1);
+			TestEqual("OnPhaseChanged before OnBattleStarted", Recorder->PhaseChangesAtBattleStarted, 0);
+			TestTrue("phases follow", Recorder->PhaseChanges.Num() > 0);
 		});
 
 		It("passes the phases in order", [this]()
@@ -293,7 +308,7 @@ void FBattlePhasesSpec::Define()
 		});
 	});
 
-	Describe("FinishBattle", [this]()
+	Describe("Battle end", [this]()
 	{
 		It("moves to Finished, reports the result once and stops the cycle", [this]()
 		{
@@ -302,19 +317,118 @@ void FBattlePhasesSpec::Define()
 				AddError("No subsystem");
 				return;
 			}
+			// Ноль волн и ни одного монстра: бой заканчивается победой при входе в первый ход игрока
+			TestWorld.SetWaves({}, 0);
 			Battle->StartBattle(TestWorld.GetConfig(), TestWorld.GetGrid());
-			Recorder->Reset();
 
-			Battle->FinishBattle(EBattleResult::Victory);
 			TestEqual("phase", Battle->GetCurrentPhase(), EBattlePhase::Finished);
 			TestEqual("Result", Battle->GetResult(), EBattleResult::Victory);
 			TestEqual("OnBattleEnded count", Recorder->EndedResults.Num(), 1);
-			TestEqual("OnPhaseChanged count", Recorder->PhaseChanges.Num(), 1);
+			const TArray<EBattlePhase> Expected = {
+				EBattlePhase::Preparation, EBattlePhase::MonstersMove, EBattlePhase::MonstersIntent,
+				EBattlePhase::PlayerTurn, EBattlePhase::Finished
+			};
+			TestTrue("OnPhaseChanged order", Recorder->PhaseChanges == Expected);
 
 			Battle->AdvancePhase();
 			Battle->EndPlayerTurn();
 			TestEqual("phase stays", Battle->GetCurrentPhase(), EBattlePhase::Finished);
-			TestEqual("OnPhaseChanged count stays", Recorder->PhaseChanges.Num(), 1);
+			TestEqual("OnPhaseChanged count stays", Recorder->PhaseChanges.Num(), 5);
+		});
+	});
+
+	Describe("Pause between monster actions", [this]()
+	{
+		// Область монстров из одной клетки далеко от героев: монстр при каждом ходе заметно перемещается
+		auto PrepareMovingMonster = [this]()
+		{
+			TestWorld.GetConfig()->MonsterSpawnArea = FGridArea{ 7, 7, 1, 1 };
+			TestWorld.SetWaves({ TestWorld.MakeMonsterDefinition(1, 3) }, 5);
+			TestWorld.SetRules(1, 0.4f);
+		};
+
+		It("passes MonstersMove by the timer, and EndPlayerTurn does nothing during the pause", [this, PrepareMovingMonster]()
+		{
+			if (!Battle)
+			{
+				AddError("No subsystem");
+				return;
+			}
+			PrepareMovingMonster();
+			Battle->StartBattle(TestWorld.GetConfig(), TestWorld.GetGrid());
+
+			// Монстр переместился, фаза ждёт паузу
+			TestEqual("phase", Battle->GetCurrentPhase(), EBattlePhase::MonstersMove);
+			TestEqual("the monster moved", Recorder->UnitMovedCount, 1);
+			TestEqual("OnTurnStarted not yet", Recorder->StartedTurns.Num(), 0);
+			const int32 PhaseCount = Recorder->PhaseChanges.Num();
+
+			Battle->EndPlayerTurn();
+			TestEqual("EndPlayerTurn does nothing", Battle->GetCurrentPhase(), EBattlePhase::MonstersMove);
+			TestEqual("the phases did not change", Recorder->PhaseChanges.Num(), PhaseCount);
+
+			TestWorld.AdvanceTime(0.2f);
+			TestEqual("the pause is not over", Battle->GetCurrentPhase(), EBattlePhase::MonstersMove);
+
+			TestWorld.AdvanceTime(0.7f);
+			TestEqual("phase after the pause", Battle->GetCurrentPhase(), EBattlePhase::PlayerTurn);
+			TestEqual("turn", Battle->GetTurnNumber(), 1);
+			TestEqual("OnTurnStarted", Recorder->StartedTurns.Num(), 1);
+		});
+
+		It("passes ResolveIntents, WaveSpawn, MonstersMove one by one by the timer", [this, PrepareMovingMonster]()
+		{
+			if (!Battle)
+			{
+				AddError("No subsystem");
+				return;
+			}
+			PrepareMovingMonster();
+			Battle->StartBattle(TestWorld.GetConfig(), TestWorld.GetGrid());
+			TestWorld.AdvanceTime(0.7f);
+			TestEqual("the first turn", Battle->GetCurrentPhase(), EBattlePhase::PlayerTurn);
+			Recorder->Reset();
+
+			Battle->EndPlayerTurn();
+			// ResolveIntents пуста (у монстра нет способности), WaveSpawn ждёт паузу после появления волны
+			TestEqual("phase", Battle->GetCurrentPhase(), EBattlePhase::WaveSpawn);
+			TestEqual("wave 2 appeared", Battle->GetCurrentWave(), 2);
+			TestEqual("two monsters", Battle->GetLivingMonsters().Num(), 2);
+			const int32 PhaseCount = Recorder->PhaseChanges.Num();
+			Battle->EndPlayerTurn();
+			TestEqual("EndPlayerTurn does nothing", Recorder->PhaseChanges.Num(), PhaseCount);
+
+			for (int32 Index = 0; Index < 20 && Battle->GetCurrentPhase() != EBattlePhase::PlayerTurn; ++Index)
+			{
+				TestWorld.AdvanceTime(0.7f);
+			}
+
+			TestEqual("phase", Battle->GetCurrentPhase(), EBattlePhase::PlayerTurn);
+			TestEqual("turn", Battle->GetTurnNumber(), 2);
+			const TArray<EBattlePhase> Expected = {
+				EBattlePhase::ResolveIntents, EBattlePhase::WaveSpawn, EBattlePhase::MonstersMove,
+				EBattlePhase::MonstersIntent, EBattlePhase::PlayerTurn
+			};
+			TestTrue("OnPhaseChanged order", Recorder->PhaseChanges == Expected);
+			TestEqual("OnTurnStarted", Recorder->StartedTurns.Num(), 1);
+		});
+
+		It("keeps the cycle synchronous without Rules (the pause is 0)", [this]()
+		{
+			if (!Battle)
+			{
+				AddError("No subsystem");
+				return;
+			}
+			TestWorld.GetConfig()->MonsterSpawnArea = FGridArea{ 7, 7, 1, 1 };
+			TestWorld.SetWaves({ TestWorld.MakeMonsterDefinition(1, 3) }, 5);
+			Battle->StartBattle(TestWorld.GetConfig(), TestWorld.GetGrid());
+
+			TestEqual("the monster moved", Recorder->UnitMovedCount, 1);
+			TestEqual("phase", Battle->GetCurrentPhase(), EBattlePhase::PlayerTurn);
+			Battle->EndPlayerTurn();
+			TestEqual("phase", Battle->GetCurrentPhase(), EBattlePhase::PlayerTurn);
+			TestEqual("turn", Battle->GetTurnNumber(), 2);
 		});
 	});
 }

@@ -6,15 +6,19 @@
 
 EBattleActionResult UMoveAction::CanExecute(const UBattleSubsystem& Battle) const
 {
-	if (!Battle.IsPlayerTurn())
+	const ADungeonGridActor* Grid = Battle.GetGrid();
+	const EBattlePhase Phase = Battle.GetCurrentPhase();
+	if (Grid == nullptr || (Phase != EBattlePhase::PlayerTurn && Phase != EBattlePhase::MonstersMove))
 	{
 		return EBattleActionResult::InvalidPhase;
 	}
-	if (!IsValid(Unit))
+	if (!IsValid(Unit) || !Unit->IsAlive())
 	{
 		return EBattleActionResult::InvalidUnit;
 	}
-	if (Unit->Team != EUnitTeam::Hero)
+	// В свой ход ходит своя сторона: героям - PlayerTurn, монстрам - MonstersMove
+	const EUnitTeam PhaseTeam = Phase == EBattlePhase::PlayerTurn ? EUnitTeam::Hero : EUnitTeam::Monster;
+	if (Unit->Team != PhaseTeam)
 	{
 		return EBattleActionResult::NotPlayerUnit;
 	}
@@ -23,11 +27,6 @@ EBattleActionResult UMoveAction::CanExecute(const UBattleSubsystem& Battle) cons
 		return EBattleActionResult::AlreadyMoved;
 	}
 
-	const ADungeonGridActor* Grid = Battle.GetGrid();
-	if (Grid == nullptr)
-	{
-		return EBattleActionResult::InvalidPhase;
-	}
 	const FGridModel& Model = Grid->GetModel();
 	if (!Model.IsInside(Target))
 	{
@@ -59,4 +58,7 @@ void UMoveAction::Execute(UBattleSubsystem& Battle)
 	}
 	Unit->MarkMoved();
 	Battle.OnUnitMoved.Broadcast(Unit, From, Target);
+	Battle.OnUnitChanged.Broadcast(Unit);
+	// Перемещение могло перекрыть снаряд или сдвинуть цель намерения
+	Battle.RebuildIntentViews();
 }

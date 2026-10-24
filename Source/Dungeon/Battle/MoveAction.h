@@ -6,7 +6,7 @@
 
 class ADungeonUnit;
 
-// Перемещение героя на клетку. //CURRENT-STAGE: герой телепортируется
+// Перемещение героя в PlayerTurn или монстра в MonstersMove на клетку. //CURRENT-STAGE: юнит телепортируется
 UCLASS()
 class DUNGEON_API UMoveAction : public UBattleAction
 {
@@ -22,10 +22,11 @@ public:
 	FIntPoint Target = FIntPoint::ZeroValue;
 
 	// Условия проверяются по порядку, возвращается первая ошибка:
-	// InvalidPhase, InvalidUnit, NotPlayerUnit, AlreadyMoved, OutOfGrid, Occupied, Unreachable.
+	// InvalidPhase (нет боя или фаза не PlayerTurn и не MonstersMove), InvalidUnit (нет юнита или он погиб),
+	// NotPlayerUnit (сторона юнита не ходит в этой фазе), AlreadyMoved, OutOfGrid, Occupied, Unreachable.
 	// Поиск доступных клеток выполняется заново, кэшу UI действие не доверяет
 	virtual EBattleActionResult CanExecute(const UBattleSubsystem& Battle) const override;
 
-	// MoveUnitInternal, затем MarkMoved, затем OnUnitMoved
+	// MoveUnitInternal, затем MarkMoved, OnUnitMoved, OnUnitChanged и RebuildIntentViews
 	virtual void Execute(UBattleSubsystem& Battle) override;
 };
