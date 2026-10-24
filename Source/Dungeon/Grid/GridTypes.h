@@ -7,6 +7,29 @@
 class ADungeonUnit;
 class UTileTypeDefinition;
 
+// Направление на сетке. Up - к строке 0: (0,-1), Down - (0,+1), Left - (-1,0), Right - (+1,0)
+UENUM(BlueprintType)
+enum class EGridDirection : uint8
+{
+	None,
+	Up,
+	Down,
+	Left,
+	Right
+};
+
+// Слои подсветки клеток. Порядок слоёв задаёт высоту и приоритет сортировки плоскостей
+UENUM(BlueprintType)
+enum class EGridHighlightLayer : uint8
+{
+	Hover,
+	Reachable,
+	Targetable,
+	AreaEdge,
+	AreaCenter,
+	Threat
+};
+
 // Прямоугольник области появления: отступ слева, отступ сверху, ширина, высота
 USTRUCT(BlueprintType)
 struct FGridArea
@@ -42,7 +65,7 @@ struct FTileData
 	TObjectPtr<UTileTypeDefinition> Type = nullptr;
 };
 
-// Юнит на клетке. Команда хранится отдельно, чтобы тестам не нужны были актёры
+// Юнит на клетке. Команда и UnitId хранятся отдельно, чтобы тестам и снимку боя не нужны были актёры
 USTRUCT(BlueprintType)
 struct FGridOccupant
 {
@@ -53,6 +76,9 @@ struct FGridOccupant
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EUnitTeam Team = EUnitTeam::Hero;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 UnitId = INDEX_NONE;
 };
 
 // Входные данные для поиска доступных клеток

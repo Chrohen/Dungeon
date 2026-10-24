@@ -1,6 +1,10 @@
 #include "Data/BattlefieldConfig.h"
+#include "Data/BattleRulesConfig.h"
+#include "Data/MonsterDefinition.h"
 #include "Data/TileTypeDefinition.h"
+#include "Data/UnitDefinition.h"
 #include "Misc/DataValidation.h"
+#include "Units/HeroUnit.h"
 
 #if WITH_EDITOR
 EDataValidationResult UBattlefieldConfig::IsDataValid(FDataValidationContext& Context) const
@@ -41,6 +45,17 @@ EDataValidationResult UBattlefieldConfig::IsDataValid(FDataValidationContext& Co
 	CheckArea(TEXT("HeroSpawnArea"), HeroSpawnArea);
 	CheckArea(TEXT("MonsterSpawnArea"), MonsterSpawnArea);
 
+	const bool bAreasValid = HeroSpawnArea.Width > 0 && HeroSpawnArea.Height > 0
+		&& MonsterSpawnArea.Width > 0 && MonsterSpawnArea.Height > 0;
+	if (bAreasValid
+		&& HeroSpawnArea.Left < MonsterSpawnArea.Left + MonsterSpawnArea.Width
+		&& MonsterSpawnArea.Left < HeroSpawnArea.Left + HeroSpawnArea.Width
+		&& HeroSpawnArea.Top < MonsterSpawnArea.Top + MonsterSpawnArea.Height
+		&& MonsterSpawnArea.Top < HeroSpawnArea.Top + HeroSpawnArea.Height)
+	{
+		AddError(TEXT("HeroSpawnArea and MonsterSpawnArea overlap."));
+	}
+
 	// Если для клетки несколько переопределений, действует последнее
 	TMap<FIntPoint, UTileTypeDefinition*> OverrideTypes;
 	for (int32 Index = 0; Index < TileOverrides.Num(); ++Index)
@@ -63,6 +78,16 @@ EDataValidationResult UBattlefieldConfig::IsDataValid(FDataValidationContext& Co
 	{
 		const FIntPoint& Position = HeroPlacements[Index].Position;
 
+		const UUnitDefinition* Hero = HeroPlacements[Index].Hero;
+		if (Hero == nullptr)
+		{
+			AddError(FString::Printf(TEXT("HeroPlacements[%d]: Hero is not set."), Index));
+		}
+		else if (Hero->UnitClass == nullptr || !Hero->UnitClass->IsChildOf(AHeroUnit::StaticClass()))
+		{
+			AddError(FString::Printf(TEXT("HeroPlacements[%d]: %s UnitClass is not a subclass of AHeroUnit."), Index, *Hero->GetName()));
+		}
+
 		if (!HeroSpawnArea.Contains(Position))
 		{
 			AddError(FString::Printf(TEXT("HeroPlacements[%d]: (%d, %d) is outside HeroSpawnArea."), Index, Position.X, Position.Y));
@@ -81,6 +106,57 @@ EDataValidationResult UBattlefieldConfig::IsDataValid(FDataValidationContext& Co
 		if (EffectiveType != nullptr && !EffectiveType->bPassable)
 		{
 			AddError(FString::Printf(TEXT("HeroPlacements[%d]: tile (%d, %d) is impassable."), Index, Position.X, Position.Y));
+		}
+	}
+
+	if (WaveCount < 1)
+	{
+		AddError(FString::Printf(TEXT("WaveCount must be at least 1 (got %d)."), WaveCount));
+	}
+
+	int32 MonstersPerWave = 0;
+	for (int32 Index = 0; Index < WaveComposition.Num(); ++Index)
+	{
+		if (WaveComposition[Index] == nullptr)
+		{
+			AddError(FString::Printf(TEXT("WaveComposition[%d] is not set."), Index));
+		}
+		else
+		{
+			++MonstersPerWave;
+		}
+	}
+
+	if (Rules == nullptr)
+	{
+		AddError(TEXT("Rules is not set."));
+	}
+
+	// Клетки появления монстров: переопределение типа, если задано, иначе DefaultTileType
+	if (bFieldValid && DefaultTileType != nullptr && MonstersPerWave > 0
+		&& MonsterSpawnArea.Width > 0 && MonsterSpawnArea.Height > 0)
+	{
+		int32 PassableTiles = 0;
+		for (int32 Y = MonsterSpawnArea.Top; Y < MonsterSpawnArea.Top + MonsterSpawnArea.Height; ++Y)
+		{
+			for (int32 X = MonsterSpawnArea.Left; X < MonsterSpawnArea.Left + MonsterSpawnArea.Width; ++X)
+			{
+				if (X < 0 || X >= Width || Y < 0 || Y >= Height)
+				{
+					continue;
+				}
+				const UTileTypeDefinition* const* Override = OverrideTypes.Find(FIntPoint(X, Y));
+				const UTileTypeDefinition* TileType = Override != nullptr ? *Override : DefaultTileType.Get();
+				if (TileType->bPassable)
+				{
+					++PassableTiles;
+				}
+			}
+		}
+		if (PassableTiles < MonstersPerWave)
+		{
+			Context.AddWarning(FText::FromString(FString::Printf(
+				TEXT("MonsterSpawnArea has %d passable tiles, but a wave has %d monsters."), PassableTiles, MonstersPerWave)));
 		}
 	}
 

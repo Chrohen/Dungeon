@@ -10,7 +10,8 @@ enum class ESelectionState : uint8
 {
 	Locked,
 	Idle,
-	HeroSelected
+	HeroSelected,
+	Aiming
 };
 
 // Что под курсором. Tile - клетка плоскости поля, модели юнитов её не закрывают.

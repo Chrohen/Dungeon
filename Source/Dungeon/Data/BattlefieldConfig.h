@@ -6,6 +6,8 @@
 #include "Grid/GridTypes.h"
 #include "BattlefieldConfig.generated.h"
 
+class UBattleRulesConfig;
+class UMonsterDefinition;
 class UTileTypeDefinition;
 
 // Параметры поля боя
@@ -42,6 +44,17 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TArray<FTileOverride> TileOverrides;
+
+	// Состав каждой волны //CURRENT-STAGE
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TArray<TObjectPtr<UMonsterDefinition>> WaveComposition;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TObjectPtr<UBattleRulesConfig> Rules = nullptr;
+
+	// 0 - новое случайное зерно в каждом бою, иначе фиксированное (для отладки)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	int32 RandomSeed = 0;
 
 #if WITH_EDITOR
 	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
