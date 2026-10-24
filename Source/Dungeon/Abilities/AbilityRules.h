@@ -47,4 +47,12 @@ public:
 
 	// Область действия от точки цели. Клетки вне поля и тайл источника (без bAffectsSource) убираются
 	static void BuildArea(const FGridModel& Grid, FIntPoint SourcePos, FIntPoint Target, EGridDirection Dir, const FAbilityAreaSpec& Spec, FAffectedArea& Out);
+
+	// Применяет эффекты к снимку по порядку и записывает события в Out (Out.Cast = Cast).
+	// Цели каждого эффекта собираются заново; после каждого эффекта погибают юниты со здоровьем 0.
+	// Область не перестраивается, даже если источник переместился. Эффекты состояний пропускаются
+	static void Simulate(FBattleSimState& S, const FResolvedAbility& A, const FAbilityCast& Cast, FAbilityOutcome& Out);
+
+	// Simulate на копии снимка: S не меняется. false (Out пуст), если источника нет в снимке или он мёртв
+	static bool Preview(const FBattleSimState& S, const FResolvedAbility& A, const FAbilityCast& Cast, FAbilityOutcome& Out);
 };

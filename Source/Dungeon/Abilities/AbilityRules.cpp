@@ -1,4 +1,5 @@
 #include "Abilities/AbilityRules.h"
+#include "Algo/Sort.h"
 #include "Grid/GridModel.h"
 
 int32 FAbilityRules::Distance(FIntPoint A, FIntPoint B)
@@ -275,4 +276,322 @@ void FAbilityRules::BuildArea(const FGridModel& Grid, FIntPoint SourcePos, FIntP
 			Out.Edge.Add(Tile);
 		}
 	}
+}
+
+namespace
+{
+	FAbilityEvent MakeEvent(EAbilityEventType Type, int32 UnitId, int32 OtherUnitId, int32 Amount, int32 EffectIndex)
+	{
+		FAbilityEvent Event;
+		Event.Type = Type;
+		Event.UnitId = UnitId;
+		Event.OtherUnitId = OtherUnitId;
+		Event.Amount = Amount;
+		Event.EffectIndex = EffectIndex;
+		return Event;
+	}
+
+	bool PassesFilter(ETargetFilter Filter, EUnitTeam SourceTeam, EUnitTeam Team)
+	{
+		switch (Filter)
+		{
+		case ETargetFilter::Enemies:
+			return Team != SourceTeam;
+		case ETargetFilter::Allies:
+			return Team == SourceTeam;
+		default:
+			return true;
+		}
+	}
+
+	// Живые юниты на клетках части области в момент вызова, по фильтру относительно команды источника.
+	// Источник - цель, только если задан bAffectsSource
+	void CollectTargets(const FBattleSimState& S, const FResolvedAbility& A, const FAbilityCast& Cast, const FAbilityEffect& Effect, TArray<int32>& OutIds)
+	{
+		OutIds.Reset();
+		const FSimUnit* Source = S.FindUnit(Cast.SourceId);
+		if (Source == nullptr)
+		{
+			return;
+		}
+
+		TArray<FIntPoint> Tiles;
+		Cast.Area.GetTiles(Effect.AreaPart, Tiles);
+		for (const FIntPoint& Tile : Tiles)
+		{
+			const FSimUnit* Unit = S.FindUnitAt(Tile);
+			if (Unit == nullptr || !PassesFilter(Effect.Filter, Source->Team, Unit->Team))
+			{
+				continue;
+			}
+			if (Unit->UnitId == Cast.SourceId && !A.Area.bAffectsSource)
+			{
+				continue;
+			}
+			OutIds.Add(Unit->UnitId);
+		}
+	}
+
+	// Шаг на одну клетку от опорной клетки к юниту по оси с большей разностью координат.
+	// (0,0), если клетки совпадают или разности равны (TD, раздел 13)
+	FIntPoint StepAwayFrom(FIntPoint Reference, FIntPoint Position)
+	{
+		const FIntPoint Delta = Position - Reference;
+		const int32 AbsX = FMath::Abs(Delta.X);
+		const int32 AbsY = FMath::Abs(Delta.Y);
+		if (AbsX == AbsY)
+		{
+			return FIntPoint::ZeroValue;
+		}
+		return AbsX > AbsY ? FIntPoint(FMath::Sign(Delta.X), 0) : FIntPoint(0, FMath::Sign(Delta.Y));
+	}
+
+	void ApplyDamageEffect(FBattleSimState& S, const FAbilityCast& Cast, int32 EffectIndex, int32 UnitId, int32 Amount, bool bCollision, FAbilityOutcome& Out)
+	{
+		int32 Lost = 0;
+		S.ApplyDamage(UnitId, Amount, Lost);
+		if (Lost > 0)
+		{
+			FAbilityEvent Event = MakeEvent(EAbilityEventType::Damage, UnitId, Cast.SourceId, Lost, EffectIndex);
+			Event.bCollision = bCollision;
+			Out.Events.Add(Event);
+		}
+	}
+
+	void ApplyPush(FBattleSimState& S, const FAbilityCast& Cast, const FAbilityEffect& Effect, int32 EffectIndex, const TArray<int32>& TargetIds, FAbilityOutcome& Out)
+	{
+		const FSimUnit* Source = S.FindUnit(Cast.SourceId);
+		if (Source == nullptr || Effect.PushDistance <= 0)
+		{
+			return;
+		}
+		const FIntPoint SourcePos = Source->Position;
+
+		struct FPushItem
+		{
+			int32 UnitId;
+			FIntPoint Step;
+			int32 Key;
+		};
+
+		// Направление и порядок считаются до начала смещения (опорные клетки в ходе эффекта не меняются)
+		TArray<FPushItem> Items;
+		for (int32 UnitId : TargetIds)
+		{
+			const FIntPoint Position = S.FindUnit(UnitId)->Position;
+			FIntPoint Step = FIntPoint::ZeroValue;
+			int32 Key = 0;
+			switch (Effect.PushDirection)
+			{
+			case EPushDirection::AbilityDirection:
+				Step = FAbilityRules::DirectionToOffset(Cast.Direction);
+				Key = Position.X * Step.X + Position.Y * Step.Y;
+				break;
+			case EPushDirection::AwayFromSource:
+				Step = StepAwayFrom(SourcePos, Position);
+				Key = FAbilityRules::Distance(Position, SourcePos);
+				break;
+			case EPushDirection::TowardSource:
+				Step = FIntPoint::ZeroValue - StepAwayFrom(SourcePos, Position);
+				Key = -FAbilityRules::Distance(Position, SourcePos);
+				break;
+			case EPushDirection::AwayFromCenter:
+				Step = StepAwayFrom(Cast.TargetPoint, Position);
+				Key = FAbilityRules::Distance(Position, Cast.TargetPoint);
+				break;
+			}
+			if (Step != FIntPoint::ZeroValue)
+			{
+				Items.Add({ UnitId, Step, Key });
+			}
+		}
+
+		// Первым сдвигается самый дальний; при равенстве - по возрастанию UnitId
+		Algo::Sort(Items, [](const FPushItem& A, const FPushItem& B)
+		{
+			return A.Key != B.Key ? A.Key > B.Key : A.UnitId < B.UnitId;
+		});
+
+		for (const FPushItem& Item : Items)
+		{
+			const FIntPoint Start = S.FindUnit(Item.UnitId)->Position;
+			FIntPoint Position = Start;
+			int32 Moved = 0;
+			bool bCollided = false;
+			int32 OtherId = INDEX_NONE;
+			FIntPoint Blocked = Start;
+
+			for (int32 Index = 0; Index < Effect.PushDistance; ++Index)
+			{
+				const FIntPoint Next = Position + Item.Step;
+				if (!S.Grid.IsInside(Next) || !S.Grid.IsPassable(Next))
+				{
+					bCollided = true;
+				}
+				else if (const FGridOccupant* Occupant = S.Grid.GetOccupant(Next))
+				{
+					bCollided = true;
+					OtherId = Occupant->UnitId;
+				}
+				else
+				{
+					S.MoveUnit(Item.UnitId, Next);
+					Position = Next;
+					++Moved;
+				}
+				if (bCollided)
+				{
+					Blocked = Next;
+					break;
+				}
+			}
+
+			if (Moved > 0)
+			{
+				FAbilityEvent Event = MakeEvent(EAbilityEventType::Push, Item.UnitId, INDEX_NONE, Moved, EffectIndex);
+				Event.From = Start;
+				Event.To = Position;
+				Out.Events.Add(Event);
+			}
+			if (bCollided)
+			{
+				FAbilityEvent Event = MakeEvent(EAbilityEventType::Collision, Item.UnitId, OtherId, S.CollisionDamage, EffectIndex);
+				Event.From = Position;
+				Event.To = Blocked;
+				Out.Events.Add(Event);
+
+				ApplyDamageEffect(S, Cast, EffectIndex, Item.UnitId, S.CollisionDamage, true, Out);
+				if (OtherId != INDEX_NONE)
+				{
+					ApplyDamageEffect(S, Cast, EffectIndex, OtherId, S.CollisionDamage, true, Out);
+				}
+			}
+		}
+	}
+
+	void ApplyMoveSource(FBattleSimState& S, const FAbilityCast& Cast, const FAbilityEffect& Effect, int32 EffectIndex, FAbilityOutcome& Out)
+	{
+		const FSimUnit* Source = S.FindUnit(Cast.SourceId);
+		if (Source == nullptr)
+		{
+			return;
+		}
+		const FIntPoint Start = Source->Position;
+		const FIntPoint Target = Cast.TargetPoint;
+
+		if (Effect.MoveMode == ESourceMoveMode::Dash)
+		{
+			// Идёт по направлению способности к точке цели, останавливается на ней или перед препятствием
+			if (Cast.Direction == EGridDirection::None || FAbilityRules::GetDirection(Start, Target) != Cast.Direction)
+			{
+				return;
+			}
+			const FIntPoint Step = FAbilityRules::DirectionToOffset(Cast.Direction);
+			const int32 Steps = FAbilityRules::Distance(Start, Target);
+			for (int32 Index = 0; Index < Steps; ++Index)
+			{
+				if (!S.MoveUnit(Cast.SourceId, S.FindUnit(Cast.SourceId)->Position + Step))
+				{
+					break;
+				}
+			}
+		}
+		else
+		{
+			// Прыжок: в точку цели, если она внутри поля, проходима и свободна
+			S.MoveUnit(Cast.SourceId, Target);
+		}
+
+		const FIntPoint End = S.FindUnit(Cast.SourceId)->Position;
+		if (End != Start)
+		{
+			FAbilityEvent Event = MakeEvent(EAbilityEventType::SourceMove, Cast.SourceId, INDEX_NONE, 0, EffectIndex);
+			Event.From = Start;
+			Event.To = End;
+			Out.Events.Add(Event);
+		}
+	}
+
+	// Юниты со здоровьем 0 погибают, клетка освобождается
+	void ResolveDeaths(FBattleSimState& S, const FAbilityCast& Cast, int32 EffectIndex, FAbilityOutcome& Out)
+	{
+		for (FSimUnit& Unit : S.Units)
+		{
+			if (Unit.bAlive && Unit.Health <= 0)
+			{
+				FAbilityEvent Event = MakeEvent(EAbilityEventType::Death, Unit.UnitId, Cast.SourceId, 0, EffectIndex);
+				Event.From = Unit.Position;
+				Event.To = Unit.Position;
+				S.KillUnit(Unit.UnitId);
+				Out.Events.Add(Event);
+			}
+		}
+	}
+}
+
+void FAbilityRules::Simulate(FBattleSimState& S, const FResolvedAbility& A, const FAbilityCast& Cast, FAbilityOutcome& Out)
+{
+	Out.Cast = Cast;
+	Out.Events.Reset();
+
+	const FSimUnit* Source = S.FindUnit(Cast.SourceId);
+	if (Source == nullptr || !Source->bAlive)
+	{
+		return;
+	}
+
+	TArray<int32> TargetIds;
+	for (int32 EffectIndex = 0; EffectIndex < A.Effects.Num(); ++EffectIndex)
+	{
+		const FAbilityEffect& Effect = A.Effects[EffectIndex];
+		switch (Effect.Type)
+		{
+		case EAbilityEffectType::Damage:
+			CollectTargets(S, A, Cast, Effect, TargetIds);
+			for (int32 UnitId : TargetIds)
+			{
+				ApplyDamageEffect(S, Cast, EffectIndex, UnitId, Effect.Amount, false, Out);
+			}
+			break;
+		case EAbilityEffectType::Heal:
+			CollectTargets(S, A, Cast, Effect, TargetIds);
+			for (int32 UnitId : TargetIds)
+			{
+				int32 Gained = 0;
+				S.ApplyHeal(UnitId, Effect.Amount, Gained);
+				if (Gained > 0)
+				{
+					Out.Events.Add(MakeEvent(EAbilityEventType::Heal, UnitId, Cast.SourceId, Gained, EffectIndex));
+				}
+			}
+			break;
+		case EAbilityEffectType::Push:
+			CollectTargets(S, A, Cast, Effect, TargetIds);
+			ApplyPush(S, Cast, Effect, EffectIndex, TargetIds, Out);
+			break;
+		case EAbilityEffectType::MoveSource:
+			ApplyMoveSource(S, Cast, Effect, EffectIndex, Out);
+			break;
+		case EAbilityEffectType::UnitStatus:
+		case EAbilityEffectType::TileStatus:
+			//CURRENT-STAGE: состояния не используются
+			break;
+		}
+		ResolveDeaths(S, Cast, EffectIndex, Out);
+	}
+}
+
+bool FAbilityRules::Preview(const FBattleSimState& S, const FResolvedAbility& A, const FAbilityCast& Cast, FAbilityOutcome& Out)
+{
+	Out = FAbilityOutcome();
+	Out.Cast = Cast;
+	const FSimUnit* Source = S.FindUnit(Cast.SourceId);
+	if (Source == nullptr || !Source->bAlive)
+	{
+		return false;
+	}
+
+	FBattleSimState Copy = S;
+	Simulate(Copy, A, Cast, Out);
+	return true;
 }
