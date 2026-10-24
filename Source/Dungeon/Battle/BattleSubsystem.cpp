@@ -171,7 +171,8 @@ ADungeonUnit* UBattleSubsystem::SpawnUnit(UUnitDefinition* Def, FIntPoint Coord)
 		return nullptr;
 	}
 
-	Unit->InitializeUnit(Def, Coord);
+	// //CURRENT-STAGE: UnitId временно равен числу уже созданных юнитов, задача 5.1 заменит его на NextUnitId++
+	Unit->InitializeUnit(Def, Coord, Units.Num());
 
 	FGridOccupant Occupant;
 	Occupant.Unit = Unit;

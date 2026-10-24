@@ -8,7 +8,7 @@ using namespace AbilityTest;
 
 namespace
 {
-	constexpr int32 HeroId = 1;
+	constexpr int32 EffectsHeroId = 1;
 }
 
 BEGIN_DEFINE_SPEC(FAbilityEffectsSpec, "Dungeon.Abilities.Effects",
@@ -21,7 +21,7 @@ BEGIN_DEFINE_SPEC(FAbilityEffectsSpec, "Dungeon.Abilities.Effects",
 	void NewField(const TArray<FIntPoint>& Walls = {}, FIntPoint Source = FIntPoint(1, 1))
 	{
 		Bed.Init(Walls);
-		Bed.AddUnit(HeroId, EUnitTeam::Hero, Source, 5);
+		Bed.AddUnit(EffectsHeroId, EUnitTeam::Hero, Source, 5);
 		Ability = FResolvedAbility();
 		Outcome = FAbilityOutcome();
 	}
@@ -37,7 +37,7 @@ BEGIN_DEFINE_SPEC(FAbilityEffectsSpec, "Dungeon.Abilities.Effects",
 	bool Run(FIntPoint Selected)
 	{
 		FAbilityCast Cast;
-		if (!FAbilityRules::MakeCast(Bed.State, HeroId, Ability, Selected, Cast))
+		if (!FAbilityRules::MakeCast(Bed.State, EffectsHeroId, Ability, Selected, Cast))
 		{
 			return false;
 		}
@@ -95,7 +95,7 @@ void FAbilityEffectsSpec::Define()
 			TestEqual("events", Outcome.Events.Num(), 2);
 			TestEqual("Damage", Outcome.Events[0].Type, EAbilityEventType::Damage);
 			TestEqual("Damage.UnitId", Outcome.Events[0].UnitId, 2);
-			TestEqual("Damage.OtherUnitId is the source", Outcome.Events[0].OtherUnitId, HeroId);
+			TestEqual("Damage.OtherUnitId is the source", Outcome.Events[0].OtherUnitId, EffectsHeroId);
 			TestEqual("Damage.Amount", Outcome.Events[0].Amount, 2);
 			TestFalse("Damage.bCollision", Outcome.Events[0].bCollision);
 			TestEqual("Death", Outcome.Events[1].Type, EAbilityEventType::Death);
@@ -123,7 +123,7 @@ void FAbilityEffectsSpec::Define()
 			Run(FIntPoint(2, 1));
 			TestEqual("Heal events", EventsOf(EAbilityEventType::Heal).Num(), 1);
 			TestEqual("Heal.Amount", EventsOf(EAbilityEventType::Heal)[0].Amount, 2);
-			TestEqual("Heal.OtherUnitId is the source", EventsOf(EAbilityEventType::Heal)[0].OtherUnitId, HeroId);
+			TestEqual("Heal.OtherUnitId is the source", EventsOf(EAbilityEventType::Heal)[0].OtherUnitId, EffectsHeroId);
 			TestEqual("health", HealthOf(2), 3);
 
 			Run(FIntPoint(2, 1));
@@ -158,7 +158,7 @@ void FAbilityEffectsSpec::Define()
 		It("the filter is relative to the source also for a monster", [this]()
 		{
 			NewField({}, FIntPoint(1, 1));
-			Bed.State.FindUnit(HeroId)->Team = EUnitTeam::Monster;
+			Bed.State.FindUnit(EffectsHeroId)->Team = EUnitTeam::Monster;
 			Bed.State.Grid.Occupants.Find(FIntPoint(1, 1))->Team = EUnitTeam::Monster;
 			Bed.AddUnit(2, EUnitTeam::Hero, FIntPoint(2, 1), 5);
 			Bed.AddUnit(3, EUnitTeam::Monster, FIntPoint(3, 1), 5);
@@ -181,7 +181,7 @@ void FAbilityEffectsSpec::Define()
 			TestEqual("center", HealthOf(2), 3);
 			TestEqual("edge monster", HealthOf(3), 4);
 			TestEqual("edge hero", HealthOf(4), 4);
-			TestEqual("the source is not in the area", HealthOf(HeroId), 5);
+			TestEqual("the source is not in the area", HealthOf(EffectsHeroId), 5);
 			TestEqual("EffectIndex of the center hit", EventsOf(EAbilityEventType::Damage)[0].EffectIndex, 0);
 			TestEqual("EffectIndex of an edge hit", EventsOf(EAbilityEventType::Damage)[1].EffectIndex, 1);
 		});
@@ -191,11 +191,11 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Diamond, 1, 1, EAreaType::Diamond, 1);
 			Ability.Effects = { MakeDamage(1) };
 			Run(FIntPoint(2, 1));
-			TestEqual("without the flag", HealthOf(HeroId), 5);
+			TestEqual("without the flag", HealthOf(EffectsHeroId), 5);
 
 			Ability.Area.bAffectsSource = true;
 			Run(FIntPoint(2, 1));
-			TestEqual("with the flag", HealthOf(HeroId), 4);
+			TestEqual("with the flag", HealthOf(EffectsHeroId), 4);
 		});
 
 		It("the source that dashed into the area is not a target without bAffectsSource", [this]()
@@ -204,8 +204,8 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Cross, 1, 4, EAreaType::Path);
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Dash), MakeDamage(1) };
 			TestTrue("Run", Run(FIntPoint(4, 1)));
-			TestEqual("the source stands on a path tile", PositionOf(HeroId), FIntPoint(3, 1));
-			TestEqual("the source is not damaged", Outcome.GetDamageTo(HeroId), 0);
+			TestEqual("the source stands on a path tile", PositionOf(EffectsHeroId), FIntPoint(3, 1));
+			TestEqual("the source is not damaged", Outcome.GetDamageTo(EffectsHeroId), 0);
 			TestEqual("the monster is damaged", HealthOf(2), 2);
 		});
 
@@ -216,7 +216,7 @@ void FAbilityEffectsSpec::Define()
 			Ability.Area.bAffectsSource = true;
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Dash), MakeDamage(1) };
 			Run(FIntPoint(4, 1));
-			TestEqual("the source is damaged", Outcome.GetDamageTo(HeroId), 1);
+			TestEqual("the source is damaged", Outcome.GetDamageTo(EffectsHeroId), 1);
 		});
 
 		It("status effects are skipped", [this]()
@@ -261,7 +261,7 @@ void FAbilityEffectsSpec::Define()
 			const TArray<FAbilityEvent> Deaths = EventsOf(EAbilityEventType::Death);
 			TestEqual("Death events", Deaths.Num(), 1);
 			TestEqual("UnitId", Deaths[0].UnitId, 2);
-			TestEqual("OtherUnitId", Deaths[0].OtherUnitId, HeroId);
+			TestEqual("OtherUnitId", Deaths[0].OtherUnitId, EffectsHeroId);
 			TestEqual("From", Deaths[0].From, FIntPoint(2, 1));
 			TestEqual("To", Deaths[0].To, FIntPoint(2, 1));
 		});
@@ -279,13 +279,13 @@ void FAbilityEffectsSpec::Define()
 
 		It("the source dies from its own area", [this]()
 		{
-			Bed.State.FindUnit(HeroId)->Health = 1;
+			Bed.State.FindUnit(EffectsHeroId)->Health = 1;
 			Setup(ETargetingShape::Diamond, 0, 0, EAreaType::Tile);
 			Ability.Area.bAffectsSource = true;
 			Ability.Effects = { MakeDamage(1, EAreaPart::All, ETargetFilter::AllUnits) };
 			TestTrue("Run", Run(FIntPoint(1, 1)));
-			TestTrue("IsKilled", Outcome.IsKilled(HeroId));
-			TestEqual("OtherUnitId", EventsOf(EAbilityEventType::Death)[0].OtherUnitId, HeroId);
+			TestTrue("IsKilled", Outcome.IsKilled(EffectsHeroId));
+			TestEqual("OtherUnitId", EventsOf(EAbilityEventType::Death)[0].OtherUnitId, EffectsHeroId);
 		});
 	});
 
@@ -313,10 +313,10 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Diamond, 2, 4, EAreaType::Diamond, 1);
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Jump), MakeDamage(1) };
 			TestTrue("Run", Run(FIntPoint(4, 2)));
-			TestEqual("the source jumped", PositionOf(HeroId), FIntPoint(4, 2));
+			TestEqual("the source jumped", PositionOf(EffectsHeroId), FIntPoint(4, 2));
 			TestEqual("a neighbour of the target is damaged", HealthOf(2), 4);
 			TestEqual("a neighbour of the old source tile is not", HealthOf(3), 5);
-			TestEqual("the source on the center tile is not damaged", HealthOf(HeroId), 5);
+			TestEqual("the source on the center tile is not damaged", HealthOf(EffectsHeroId), 5);
 			TestEqual("Outcome.Cast keeps the area", Outcome.Cast.Area.Center, FIntPoint(4, 2));
 			TestEqual("Outcome.Cast keeps SourcePosition", Outcome.Cast.SourcePosition, FIntPoint(1, 1));
 		});
@@ -342,7 +342,7 @@ void FAbilityEffectsSpec::Define()
 			FIntPoint Final;
 			TestTrue("GetFinalPosition", Outcome.GetFinalPosition(2, Final));
 			TestEqual("final position", Final, FIntPoint(4, 1));
-			TestFalse("the source did not move", Outcome.GetFinalPosition(HeroId, Final));
+			TestFalse("the source did not move", Outcome.GetFinalPosition(EffectsHeroId, Final));
 		});
 
 		It("AbilityDirection does nothing without a direction", [this]()
@@ -402,9 +402,9 @@ void FAbilityEffectsSpec::Define()
 			TestEqual("the neighbour does not move", PositionOf(4), FIntPoint(3, 4));
 			const TArray<FAbilityEvent> Collisions = EventsOf(EAbilityEventType::Collision);
 			TestEqual("Collision events", Collisions.Num(), 1);
-			TestEqual("Collision.OtherUnitId is the source", Collisions[0].OtherUnitId, HeroId);
+			TestEqual("Collision.OtherUnitId is the source", Collisions[0].OtherUnitId, EffectsHeroId);
 			TestEqual("the monster is damaged", HealthOf(4), 4);
-			TestEqual("the source is damaged too", HealthOf(HeroId), 4);
+			TestEqual("the source is damaged too", HealthOf(EffectsHeroId), 4);
 		});
 
 		It("AwayFromCenter moves units from the target point and leaves the unit in the center", [this]()
@@ -518,7 +518,7 @@ void FAbilityEffectsSpec::Define()
 			TestEqual("Damage", Outcome.Events[2].Type, EAbilityEventType::Damage);
 			TestTrue("Damage.bCollision", Outcome.Events[2].bCollision);
 			TestEqual("Damage.Amount", Outcome.Events[2].Amount, 1);
-			TestEqual("Damage.OtherUnitId is the source", Outcome.Events[2].OtherUnitId, HeroId);
+			TestEqual("Damage.OtherUnitId is the source", Outcome.Events[2].OtherUnitId, EffectsHeroId);
 			TestEqual("health", HealthOf(2), 4);
 			TestEqual("position", PositionOf(2), FIntPoint(7, 1));
 		});
@@ -589,7 +589,7 @@ void FAbilityEffectsSpec::Define()
 			Ability.Effects = { MakePush(EPushDirection::AbilityDirection, 3) };
 			Run(FIntPoint(6, 1));
 			TestEqual("last event", Outcome.Events.Last().Type, EAbilityEventType::Death);
-			TestEqual("Death.OtherUnitId", Outcome.Events.Last().OtherUnitId, HeroId);
+			TestEqual("Death.OtherUnitId", Outcome.Events.Last().OtherUnitId, EffectsHeroId);
 			TestEqual("Death.From", Outcome.Events.Last().From, FIntPoint(7, 1));
 			TestTrue("IsKilled", Outcome.IsKilled(2));
 			TestEqual("GetDamageTo includes the collision", Outcome.GetDamageTo(2), 1);
@@ -621,7 +621,7 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Cross, 1, 6);
 			Ability.Effects = { MakePush(EPushDirection::AbilityDirection, 1), MakeMoveSource(ESourceMoveMode::Jump) };
 			Run(FIntPoint(7, 1));
-			TestEqual("the source jumped onto the freed tile", PositionOf(HeroId), FIntPoint(7, 1));
+			TestEqual("the source jumped onto the freed tile", PositionOf(EffectsHeroId), FIntPoint(7, 1));
 		});
 	});
 
@@ -632,14 +632,14 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Cross, 1, 4);
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Dash) };
 			TestTrue("Run", Run(FIntPoint(4, 1)));
-			TestEqual("position", PositionOf(HeroId), FIntPoint(4, 1));
+			TestEqual("position", PositionOf(EffectsHeroId), FIntPoint(4, 1));
 			TestEqual("events", Outcome.Events.Num(), 1);
 			TestEqual("Type", Outcome.Events[0].Type, EAbilityEventType::SourceMove);
-			TestEqual("UnitId", Outcome.Events[0].UnitId, HeroId);
+			TestEqual("UnitId", Outcome.Events[0].UnitId, EffectsHeroId);
 			TestEqual("From", Outcome.Events[0].From, FIntPoint(1, 1));
 			TestEqual("To", Outcome.Events[0].To, FIntPoint(4, 1));
 			FIntPoint Final;
-			TestTrue("GetFinalPosition", Outcome.GetFinalPosition(HeroId, Final));
+			TestTrue("GetFinalPosition", Outcome.GetFinalPosition(EffectsHeroId, Final));
 			TestEqual("final position", Final, FIntPoint(4, 1));
 		});
 
@@ -649,7 +649,7 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Cross, 1, 4);
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Dash) };
 			Run(FIntPoint(4, 1));
-			TestEqual("position", PositionOf(HeroId), FIntPoint(3, 1));
+			TestEqual("position", PositionOf(EffectsHeroId), FIntPoint(3, 1));
 			TestEqual("the unit does not move", PositionOf(2), FIntPoint(4, 1));
 		});
 
@@ -659,7 +659,7 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Cross, 1, 4);
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Dash) };
 			Run(FIntPoint(4, 1));
-			TestEqual("position", PositionOf(HeroId), FIntPoint(2, 1));
+			TestEqual("position", PositionOf(EffectsHeroId), FIntPoint(2, 1));
 		});
 
 		It("Dash stops before an impassable tile", [this]()
@@ -668,7 +668,7 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Cross, 1, 4);
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Dash) };
 			Run(FIntPoint(4, 1));
-			TestEqual("position", PositionOf(HeroId), FIntPoint(2, 1));
+			TestEqual("position", PositionOf(EffectsHeroId), FIntPoint(2, 1));
 		});
 
 		It("Dash does not move and writes no event when the first tile is blocked", [this]()
@@ -677,7 +677,7 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Cross, 1, 4);
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Dash) };
 			Run(FIntPoint(4, 1));
-			TestEqual("position", PositionOf(HeroId), FIntPoint(1, 1));
+			TestEqual("position", PositionOf(EffectsHeroId), FIntPoint(1, 1));
 			TestEqual("events", Outcome.Events.Num(), 0);
 		});
 
@@ -687,11 +687,11 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Cross, 1, 3);
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Dash) };
 			Run(FIntPoint(4, 2));
-			TestEqual("Up", PositionOf(HeroId), FIntPoint(4, 2));
+			TestEqual("Up", PositionOf(EffectsHeroId), FIntPoint(4, 2));
 			Run(FIntPoint(4, 4));
-			TestEqual("Down", PositionOf(HeroId), FIntPoint(4, 4));
+			TestEqual("Down", PositionOf(EffectsHeroId), FIntPoint(4, 4));
 			Run(FIntPoint(2, 4));
-			TestEqual("Left", PositionOf(HeroId), FIntPoint(2, 4));
+			TestEqual("Left", PositionOf(EffectsHeroId), FIntPoint(2, 4));
 		});
 
 		It("Jump moves to the target point ignoring the tiles in between", [this]()
@@ -700,7 +700,7 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Diamond, 1, 4);
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Jump) };
 			TestTrue("Run", Run(FIntPoint(3, 2)));
-			TestEqual("position", PositionOf(HeroId), FIntPoint(3, 2));
+			TestEqual("position", PositionOf(EffectsHeroId), FIntPoint(3, 2));
 			TestEqual("SourceMove.From", Outcome.Events[0].From, FIntPoint(1, 1));
 			TestEqual("SourceMove.To", Outcome.Events[0].To, FIntPoint(3, 2));
 		});
@@ -712,10 +712,10 @@ void FAbilityEffectsSpec::Define()
 			Setup(ETargetingShape::Diamond, 1, 4);
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Jump) };
 			Run(FIntPoint(2, 2));
-			TestEqual("occupied: position", PositionOf(HeroId), FIntPoint(1, 1));
+			TestEqual("occupied: position", PositionOf(EffectsHeroId), FIntPoint(1, 1));
 			TestEqual("occupied: events", Outcome.Events.Num(), 0);
 			Run(FIntPoint(3, 2));
-			TestEqual("impassable: position", PositionOf(HeroId), FIntPoint(1, 1));
+			TestEqual("impassable: position", PositionOf(EffectsHeroId), FIntPoint(1, 1));
 			TestEqual("impassable: events", Outcome.Events.Num(), 0);
 		});
 
@@ -740,7 +740,7 @@ void FAbilityEffectsSpec::Define()
 			Ability.Targeting.Requirement = ETargetRequirement::Enemy;
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Dash), MakeDamage(1, EAreaPart::All, ETargetFilter::Enemies) };
 			TestTrue("Run", Run(FIntPoint(4, 1)));
-			TestEqual("source", PositionOf(HeroId), FIntPoint(3, 1));
+			TestEqual("source", PositionOf(EffectsHeroId), FIntPoint(3, 1));
 			TestEqual("target", HealthOf(2), 2);
 			TestEqual("a unit next to the path", HealthOf(3), 3);
 			TestEqual("SourceMove before Damage", Outcome.Events[0].Type, EAbilityEventType::SourceMove);
@@ -758,7 +758,7 @@ void FAbilityEffectsSpec::Define()
 			Ability.Effects = { MakeMoveSource(ESourceMoveMode::Dash), MakeDamage(2), MakePush(EPushDirection::AbilityDirection, 3) };
 
 			FAbilityCast Cast;
-			TestTrue("MakeCast", FAbilityRules::MakeCast(Bed.State, HeroId, Ability, FIntPoint(6, 1), Cast));
+			TestTrue("MakeCast", FAbilityRules::MakeCast(Bed.State, EffectsHeroId, Ability, FIntPoint(6, 1), Cast));
 			const FBattleSimState Before = Bed.State;
 
 			FAbilityOutcome Previewed;
@@ -805,8 +805,8 @@ void FAbilityEffectsSpec::Define()
 			TestFalse("unknown", FAbilityRules::Preview(Bed.State, Ability, Cast, Previewed));
 			TestEqual("no events", Previewed.Events.Num(), 0);
 
-			Bed.State.KillUnit(HeroId);
-			Cast.SourceId = HeroId;
+			Bed.State.KillUnit(EffectsHeroId);
+			Cast.SourceId = EffectsHeroId;
 			TestFalse("dead", FAbilityRules::Preview(Bed.State, Ability, Cast, Previewed));
 		});
 	});
@@ -820,7 +820,7 @@ void FAbilityEffectsSpec::Define()
 			Ability.Effects = { MakeDamage(2), MakePush(EPushDirection::AbilityDirection, 2) };
 			Run(FIntPoint(6, 1));
 			TestEqual("GetDamageTo", Outcome.GetDamageTo(2), 3);
-			TestEqual("a unit without events", Outcome.GetDamageTo(HeroId), 0);
+			TestEqual("a unit without events", Outcome.GetDamageTo(EffectsHeroId), 0);
 			TestFalse("IsKilled", Outcome.IsKilled(2));
 		});
 

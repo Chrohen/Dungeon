@@ -9,6 +9,8 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Grid/DungeonGridActor.h"
+#include "Grid/GridHighlightComponent.h"
+#include "Materials/Material.h"
 #include "Tests/BattleTestHelpers.h"
 
 // Проверяет преобразование клеток и мира без уровня: актёр создаётся вне мира, тайлы без мешей
@@ -167,6 +169,154 @@ void FGridActorSpec::Define()
 				++TypesChecked;
 			}
 			TestEqual("tile types with meshes", TypesChecked, 2);
+		});
+	});
+
+	Describe("highlight layers", [this]()
+	{
+		BeforeEach([this]()
+		{
+			MeshWorld.Create();
+		});
+
+		AfterEach([this]()
+		{
+			MeshWorld.Destroy();
+		});
+
+		It("replaces the tile set of a layer in SetLayerTiles and keeps other layers", [this]()
+		{
+			UGridHighlightComponent* Highlight = MeshWorld.GetGrid()->GetHighlight();
+			Highlight->SetLayerTiles(EGridHighlightLayer::Reachable, { FIntPoint(0, 0) });
+			Highlight->SetLayerTiles(EGridHighlightLayer::Targetable, { FIntPoint(1, 0), FIntPoint(2, 0), FIntPoint(3, 0) });
+			TestEqual("Targetable", Highlight->GetLayerTileCount(EGridHighlightLayer::Targetable), 3);
+
+			Highlight->SetLayerTiles(EGridHighlightLayer::Targetable, { FIntPoint(4, 4), FIntPoint(5, 5) });
+			TestEqual("Targetable replaced", Highlight->GetLayerTileCount(EGridHighlightLayer::Targetable), 2);
+			TestEqual("Reachable untouched", Highlight->GetLayerTileCount(EGridHighlightLayer::Reachable), 1);
+
+			FTransform Instance;
+			Highlight->GetLayerInstances(EGridHighlightLayer::Targetable)->GetInstanceTransform(0, Instance, /*bWorldSpace=*/true);
+			const FVector Expected = MeshWorld.GetGrid()->GridToWorld(FIntPoint(4, 4));
+			TestEqual("X of the first new tile", Instance.GetLocation().X, Expected.X);
+			TestEqual("Y of the first new tile", Instance.GetLocation().Y, Expected.Y);
+
+			Highlight->SetLayerTiles(EGridHighlightLayer::Targetable, {});
+			TestEqual("empty set clears the layer", Highlight->GetLayerTileCount(EGridHighlightLayer::Targetable), 0);
+		});
+
+		It("clears one layer in ClearLayer and tolerates an empty layer", [this]()
+		{
+			UGridHighlightComponent* Highlight = MeshWorld.GetGrid()->GetHighlight();
+			Highlight->ClearLayer(EGridHighlightLayer::AreaEdge);
+			TestEqual("empty layer", Highlight->GetLayerTileCount(EGridHighlightLayer::AreaEdge), 0);
+
+			Highlight->SetLayerTiles(EGridHighlightLayer::AreaEdge, { FIntPoint(1, 1), FIntPoint(2, 1) });
+			Highlight->SetLayerTiles(EGridHighlightLayer::AreaCenter, { FIntPoint(1, 2) });
+			Highlight->ClearLayer(EGridHighlightLayer::AreaEdge);
+			TestEqual("cleared layer", Highlight->GetLayerTileCount(EGridHighlightLayer::AreaEdge), 0);
+			TestEqual("other layer", Highlight->GetLayerTileCount(EGridHighlightLayer::AreaCenter), 1);
+		});
+
+		It("keeps the sprint 1 wrappers working on the Hover and Reachable layers", [this]()
+		{
+			UGridHighlightComponent* Highlight = MeshWorld.GetGrid()->GetHighlight();
+			Highlight->SetHoveredTile(FIntPoint(2, 3));
+			TestEqual("Hover", Highlight->GetLayerTileCount(EGridHighlightLayer::Hover), 1);
+			Highlight->SetHoveredTile(FIntPoint(3, 3));
+			TestEqual("Hover replaced", Highlight->GetLayerTileCount(EGridHighlightLayer::Hover), 1);
+			Highlight->SetHoveredTile(TOptional<FIntPoint>());
+			TestEqual("Hover cleared", Highlight->GetLayerTileCount(EGridHighlightLayer::Hover), 0);
+
+			Highlight->ShowReachable({ FIntPoint(0, 0), FIntPoint(1, 0), FIntPoint(2, 0) });
+			TestEqual("Reachable", Highlight->GetLayerTileCount(EGridHighlightLayer::Reachable), 3);
+			Highlight->ShowReachable({ FIntPoint(0, 1) });
+			TestEqual("Reachable replaced", Highlight->GetLayerTileCount(EGridHighlightLayer::Reachable), 1);
+			TestEqual("Hover untouched", Highlight->GetLayerTileCount(EGridHighlightLayer::Hover), 0);
+			Highlight->ClearReachable();
+			TestEqual("Reachable cleared", Highlight->GetLayerTileCount(EGridHighlightLayer::Reachable), 0);
+		});
+
+		It("creates one ISM per layer once, without collision, with one custom data float", [this]()
+		{
+			UGridHighlightComponent* Highlight = MeshWorld.GetGrid()->GetHighlight();
+			const UInstancedStaticMeshComponent* Before = Highlight->GetLayerInstances(EGridHighlightLayer::Threat);
+			Highlight->SetLayerTiles(EGridHighlightLayer::Threat, { FIntPoint(0, 0) });
+			Highlight->SetLayerTiles(EGridHighlightLayer::Threat, { FIntPoint(1, 1) });
+			TestNotNull("created on registration", Before);
+			TestTrue("same ISM", Highlight->GetLayerInstances(EGridHighlightLayer::Threat) == Before);
+
+			int32 IsmCount = 0;
+			for (const UActorComponent* Component : MeshWorld.GetGrid()->GetComponents())
+			{
+				const UInstancedStaticMeshComponent* Ism = Cast<UInstancedStaticMeshComponent>(Component);
+				if (Ism != nullptr)
+				{
+					++IsmCount;
+					TestEqual("collision", Ism->GetCollisionEnabled(), ECollisionEnabled::NoCollision);
+					TestEqual("custom data floats", Ism->NumCustomDataFloats, 1);
+					TestTrue("transient", Ism->HasAnyFlags(RF_Transient));
+				}
+			}
+			TestEqual("ISM count", IsmCount, 6);
+		});
+
+		It("lifts every layer by LayerHeightStep and sorts translucent layers in layer order", [this]()
+		{
+			UGridHighlightComponent* Highlight = MeshWorld.GetGrid()->GetHighlight();
+			for (const EGridHighlightLayer Layer : TEnumRange<EGridHighlightLayer>())
+			{
+				Highlight->SetLayerTiles(Layer, { FIntPoint(2, 2) });
+				const UInstancedStaticMeshComponent* Instances = Highlight->GetLayerInstances(Layer);
+				const int32 Index = static_cast<int32>(Layer);
+
+				FTransform Instance;
+				Instances->GetInstanceTransform(0, Instance, /*bWorldSpace=*/true);
+				TestTrue(FString::Printf(TEXT("height of layer %d"), Index),
+					FMath::IsNearlyEqual(Instance.GetLocation().Z, Highlight->HeightOffset + Index * Highlight->LayerHeightStep, 0.001));
+				TestEqual(FString::Printf(TEXT("sort priority of layer %d"), Index), Instances->TranslucencySortPriority, Index);
+			}
+			TestEqual("default LayerHeightStep", Highlight->LayerHeightStep, 0.1f);
+		});
+
+		It("writes Brightness to PerInstanceCustomData[0], and 1 without it", [this]()
+		{
+			UGridHighlightComponent* Highlight = MeshWorld.GetGrid()->GetHighlight();
+			const TArray<FIntPoint> Tiles = { FIntPoint(0, 0), FIntPoint(1, 0), FIntPoint(2, 0) };
+
+			const TArray<float> Brightness = { 1.f, 0.35f, 0.5f };
+			Highlight->SetLayerTiles(EGridHighlightLayer::Threat, Tiles, &Brightness);
+			TestTrue("with Brightness", Highlight->GetLayerInstances(EGridHighlightLayer::Threat)->PerInstanceSMCustomData == Brightness);
+
+			Highlight->SetLayerTiles(EGridHighlightLayer::Threat, Tiles);
+			TestTrue("without Brightness", Highlight->GetLayerInstances(EGridHighlightLayer::Threat)->PerInstanceSMCustomData == TArray<float>({ 1.f, 1.f, 1.f }));
+		});
+
+		It("warns and uses 1 when Brightness does not match the tile count", [this]()
+		{
+			AddExpectedMessagePlain(TEXT("Brightness has 2 values for 3 tiles"), ELogVerbosity::Warning, EAutomationExpectedMessageFlags::Contains, 1);
+
+			UGridHighlightComponent* Highlight = MeshWorld.GetGrid()->GetHighlight();
+			const TArray<float> Brightness = { 0.35f, 0.35f };
+			Highlight->SetLayerTiles(EGridHighlightLayer::Threat, { FIntPoint(0, 0), FIntPoint(1, 0), FIntPoint(2, 0) }, &Brightness);
+			TestEqual("tiles", Highlight->GetLayerTileCount(EGridHighlightLayer::Threat), 3);
+			TestTrue("values", Highlight->GetLayerInstances(EGridHighlightLayer::Threat)->PerInstanceSMCustomData == TArray<float>({ 1.f, 1.f, 1.f }));
+		});
+
+		It("warns about an unset layer material and a material without the ISM usage flag", [this]()
+		{
+			AddExpectedMessagePlain(TEXT("LayerMaterials[Threat] is not set"), ELogVerbosity::Warning, EAutomationExpectedMessageFlags::Contains, 1);
+			AddExpectedMessage(TEXT("LayerMaterials\\[Targetable\\] \\(.*\\) lacks 'Used with Instanced Static Meshes'"), ELogVerbosity::Warning, EAutomationExpectedMessageFlags::Contains, 1);
+
+			TStrongObjectPtr<UMaterial> NoIsmFlag(NewObject<UMaterial>());
+			NoIsmFlag->bUsedWithInstancedStaticMeshes = false;
+
+			// Материалы должны быть заданы до регистрации компонента, как у BP_DungeonGridActor: берём их из шаблона
+			TStrongObjectPtr<ADungeonGridActor> Template(NewObject<ADungeonGridActor>());
+			Template->GetHighlight()->LayerMaterials.Add(EGridHighlightLayer::Targetable, NoIsmFlag.Get());
+			FActorSpawnParameters Params;
+			Params.Template = Template.Get();
+			MeshWorld.GetWorld()->SpawnActor<ADungeonGridActor>(ADungeonGridActor::StaticClass(), FTransform::Identity, Params);
 		});
 	});
 }

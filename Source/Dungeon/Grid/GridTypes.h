@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/EnumRange.h"
 #include "Units/UnitTypes.h"
 #include "GridTypes.generated.h"
 
@@ -29,6 +30,8 @@ enum class EGridHighlightLayer : uint8
 	AreaCenter,
 	Threat
 };
+// Перебор слоёв в порядке перечисления. Новый слой добавляется в конец и в границу диапазона
+ENUM_RANGE_BY_FIRST_AND_LAST(EGridHighlightLayer, EGridHighlightLayer::Hover, EGridHighlightLayer::Threat);
 
 // Прямоугольник области появления: отступ слева, отступ сверху, ширина, высота
 USTRUCT(BlueprintType)
