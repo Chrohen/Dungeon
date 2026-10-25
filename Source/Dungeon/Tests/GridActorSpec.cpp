@@ -8,10 +8,12 @@
 #include "Data/TileTypeDefinition.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Grid/BattleOverlayComponent.h"
 #include "Grid/DungeonGridActor.h"
 #include "Grid/GridHighlightComponent.h"
 #include "Materials/Material.h"
 #include "Tests/BattleTestHelpers.h"
+#include "Units/MonsterUnit.h"
 
 // Проверяет преобразование клеток и мира без уровня: актёр создаётся вне мира, тайлы без мешей
 BEGIN_DEFINE_SPEC(FGridActorSpec, "Dungeon.Grid.Actor",
@@ -249,8 +251,9 @@ void FGridActorSpec::Define()
 			int32 IsmCount = 0;
 			for (const UActorComponent* Component : MeshWorld.GetGrid()->GetComponents())
 			{
+				// Только слои подсветки: стрелки Overlay (задача 6.1) тоже ISM, но без custom data
 				const UInstancedStaticMeshComponent* Ism = Cast<UInstancedStaticMeshComponent>(Component);
-				if (Ism != nullptr)
+				if (Ism != nullptr && Ism->GetAttachParent() == Highlight)
 				{
 					++IsmCount;
 					TestEqual("collision", Ism->GetCollisionEnabled(), ECollisionEnabled::NoCollision);
@@ -317,6 +320,72 @@ void FGridActorSpec::Define()
 			FActorSpawnParameters Params;
 			Params.Template = Template.Get();
 			MeshWorld.GetWorld()->SpawnActor<ADungeonGridActor>(ADungeonGridActor::StaticClass(), FTransform::Identity, Params);
+		});
+	});
+
+	Describe("overlay", [this]()
+	{
+		// Намерение монстра с областью: центр и край. Подробные проверки отображения - в Dungeon.Grid.Overlay
+		auto MakeView = [](AMonsterUnit* Monster, int32 Order, FIntPoint Center, const TArray<FIntPoint>& Edge)
+		{
+			FIntentView View;
+			View.Monster = Monster;
+			View.Order = Order;
+			View.Cast.Area.Center = Center;
+			View.Cast.Area.bHasCenter = true;
+			View.Cast.Area.Edge = Edge;
+			return View;
+		};
+
+		BeforeEach([this]()
+		{
+			MeshWorld.Create();
+		});
+
+		AfterEach([this]()
+		{
+			MeshWorld.Destroy();
+		});
+
+		It("has an Overlay component", [this]()
+		{
+			UBattleOverlayComponent* Overlay = MeshWorld.GetGrid()->GetOverlay();
+			TestNotNull("Overlay", Overlay);
+			TestTrue("it is a component of the actor", Overlay != nullptr && Overlay->GetOwner() == MeshWorld.GetGrid());
+		});
+
+		It("fills the Threat layer with the tiles of the areas in ShowIntents and clears it in HideIntents", [this, MakeView]()
+		{
+			ADungeonGridActor* GridActor = MeshWorld.GetGrid();
+			AMonsterUnit* First = MeshWorld.GetWorld()->SpawnActor<AMonsterUnit>();
+			AMonsterUnit* Second = MeshWorld.GetWorld()->SpawnActor<AMonsterUnit>();
+
+			GridActor->GetOverlay()->ShowIntents({
+				MakeView(First, 1, FIntPoint(2, 2), { FIntPoint(3, 2), FIntPoint(2, 3) }),
+				MakeView(Second, 2, FIntPoint(3, 2), { FIntPoint(4, 2) }) });
+			TestEqual("Threat tiles", GridActor->GetHighlight()->GetLayerTileCount(EGridHighlightLayer::Threat), 4);
+
+			GridActor->GetOverlay()->HideIntents();
+			TestEqual("Threat cleared", GridActor->GetHighlight()->GetLayerTileCount(EGridHighlightLayer::Threat), 0);
+		});
+
+		It("gives brightness 1 to the tiles of the focused monster and 0.35 to the others in SetFocus", [this, MakeView]()
+		{
+			ADungeonGridActor* GridActor = MeshWorld.GetGrid();
+			AMonsterUnit* First = MeshWorld.GetWorld()->SpawnActor<AMonsterUnit>();
+			AMonsterUnit* Second = MeshWorld.GetWorld()->SpawnActor<AMonsterUnit>();
+			GridActor->GetOverlay()->ShowIntents({
+				MakeView(First, 1, FIntPoint(2, 2), {}),
+				MakeView(Second, 2, FIntPoint(5, 5), {}) });
+
+			GridActor->GetOverlay()->SetFocus(First, {});
+
+			// Яркость пишется по порядку клеток: сначала область первого монстра, затем второго
+			const UInstancedStaticMeshComponent* Threat = GridActor->GetHighlight()->GetLayerInstances(EGridHighlightLayer::Threat);
+			TestTrue("1 for the focused monster, 0.35 for the other", Threat->PerInstanceSMCustomData == TArray<float>({ 1.f, 0.35f }));
+
+			GridActor->GetOverlay()->SetFocus(nullptr, {});
+			TestTrue("all 1 without focus", Threat->PerInstanceSMCustomData == TArray<float>({ 1.f, 1.f }));
 		});
 	});
 }

@@ -4,6 +4,7 @@
 #include "UObject/Object.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Battle/BattleTypes.h"
+#include "UI/TileLabelWidget.h"
 #include "BattleTestHelpers.generated.h"
 
 class ADungeonGridActor;
@@ -98,6 +99,14 @@ public:
 	int32 PhaseChangesAtBattleEnd = INDEX_NONE;
 
 	void Reset();
+};
+
+// Неабстрактный наследник UTileLabelWidget без дерева виджетов: тестам пула подписей
+// UBattleOverlayComponent нужен класс, который можно задать в TileLabelClass
+UCLASS()
+class UTestTileLabelWidget : public UTileLabelWidget
+{
+	GENERATED_BODY()
 };
 
 #if WITH_DEV_AUTOMATION_TESTS

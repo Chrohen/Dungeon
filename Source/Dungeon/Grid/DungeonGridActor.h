@@ -5,6 +5,7 @@
 #include "Grid/GridModel.h"
 #include "DungeonGridActor.generated.h"
 
+class UBattleOverlayComponent;
 class UBattlefieldConfig;
 class UBoxComponent;
 class UGridHighlightComponent;
@@ -38,6 +39,8 @@ public:
 
 	UGridHighlightComponent* GetHighlight() const { return Highlight; }
 
+	UBattleOverlayComponent* GetOverlay() const { return Overlay; }
+
 	float GetTileSize() const { return TileSize; }
 
 private:
@@ -66,6 +69,10 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Grid", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UGridHighlightComponent> Highlight;
+
+	// Намерения монстров и предпросмотр способностей
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Grid", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UBattleOverlayComponent> Overlay;
 
 	float TileSize = 100.f;
 };

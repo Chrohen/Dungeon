@@ -19,7 +19,7 @@ namespace
 	// Шаг на одну клетку от опорной клетки к позиции по оси с большей разностью координат.
 	// (0,0), если клетки совпадают или разности равны (TD, раздел 13, п. 10). Нужен только стрелкам намерений:
 	// само смещение считает FAbilityRules::Simulate
-	FIntPoint StepAwayFrom(FIntPoint Reference, FIntPoint Position)
+	FIntPoint IntentStepAwayFrom(FIntPoint Reference, FIntPoint Position)
 	{
 		const FIntPoint Delta = Position - Reference;
 		const int32 AbsX = FMath::Abs(Delta.X);
@@ -618,13 +618,13 @@ void UBattleSubsystem::RebuildIntentViews()
 				switch (Effect.PushDirection)
 				{
 				case EPushDirection::AwayFromSource:
-					Step = StepAwayFrom(IntentCast.SourcePosition, Tile);
+					Step = IntentStepAwayFrom(IntentCast.SourcePosition, Tile);
 					break;
 				case EPushDirection::TowardSource:
-					Step = FIntPoint::ZeroValue - StepAwayFrom(IntentCast.SourcePosition, Tile);
+					Step = FIntPoint::ZeroValue - IntentStepAwayFrom(IntentCast.SourcePosition, Tile);
 					break;
 				case EPushDirection::AwayFromCenter:
-					Step = StepAwayFrom(IntentCast.TargetPoint, Tile);
+					Step = IntentStepAwayFrom(IntentCast.TargetPoint, Tile);
 					break;
 				default:
 					break;

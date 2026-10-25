@@ -2,6 +2,7 @@
 #include "Core/DungeonCollision.h"
 #include "Data/BattlefieldConfig.h"
 #include "Data/TileTypeDefinition.h"
+#include "Grid/BattleOverlayComponent.h"
 #include "Grid/GridHighlightComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
@@ -30,6 +31,9 @@ ADungeonGridActor::ADungeonGridActor()
 
 	Highlight = CreateDefaultSubobject<UGridHighlightComponent>(TEXT("Highlight"));
 	Highlight->SetupAttachment(Root);
+
+	Overlay = CreateDefaultSubobject<UBattleOverlayComponent>(TEXT("Overlay"));
+	Overlay->SetupAttachment(Root);
 }
 
 void ADungeonGridActor::BuildFromConfig(UBattlefieldConfig* InConfig)
