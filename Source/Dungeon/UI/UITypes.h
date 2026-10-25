@@ -12,3 +12,13 @@ enum class EAbilityButtonState : uint8
 	Cooldown,
 	Unavailable
 };
+
+// Экран окна завершения боя (TD 7.6)
+UENUM(BlueprintType)
+enum class EBattleResultScreen : uint8
+{
+	None,
+	Rewards,
+	Transition,
+	Defeat
+};

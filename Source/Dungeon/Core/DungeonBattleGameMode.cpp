@@ -38,6 +38,7 @@ void ADungeonBattleGameMode::StartPlay()
 		return;
 	}
 	Grid->BuildFromConfig(BattlefieldConfig);
+	GridActor = Grid;
 
 	APlayerController* PlayerController = World->GetFirstPlayerController();
 	APawn* CameraPawn = PlayerController != nullptr ? PlayerController->GetPawn() : nullptr;
@@ -51,4 +52,18 @@ void ADungeonBattleGameMode::StartPlay()
 	}
 
 	Battle->StartBattle(BattlefieldConfig, Grid);
+}
+
+void ADungeonBattleGameMode::RestartBattle()
+{
+	UWorld* World = GetWorld();
+	UBattleSubsystem* Battle = World != nullptr ? World->GetSubsystem<UBattleSubsystem>() : nullptr;
+	if (Battle == nullptr || BattlefieldConfig == nullptr || GridActor == nullptr)
+	{
+		UE_LOG(LogDungeonBattle, Error, TEXT("ADungeonBattleGameMode::RestartBattle: there is no battle to restart (subsystem, BattlefieldConfig or GridActor is missing)."));
+		return;
+	}
+
+	// //CURRENT-STAGE: следующий этаж и возвращение в город пока перезапускают тот же бой
+	Battle->StartBattle(BattlefieldConfig, GridActor);
 }
