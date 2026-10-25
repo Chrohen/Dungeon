@@ -4,14 +4,17 @@
 #include "UObject/Object.h"
 #include "UObject/StrongObjectPtr.h"
 #include "Battle/BattleTypes.h"
+#include "Input/InputTypes.h"
 #include "UI/TileLabelWidget.h"
 #include "BattleTestHelpers.generated.h"
 
 class ADungeonGridActor;
 class ADungeonUnit;
+class AHeroUnit;
 class AMonsterUnit;
 class UAbilityDefinition;
 class UBattleRulesConfig;
+class UBattleSelectionComponent;
 class UBattleSubsystem;
 class UBattlefieldConfig;
 class UMonsterDefinition;
@@ -97,6 +100,32 @@ public:
 
 	// Сколько OnPhaseChanged пришло к моменту первого OnBattleEnded
 	int32 PhaseChangesAtBattleEnd = INDEX_NONE;
+
+	void Reset();
+};
+
+// Записывает делегаты UBattleSelectionComponent (OnSelectionChanged, OnHoveredUnitChanged)
+UCLASS()
+class USelectionEventRecorder : public UObject
+{
+	GENERATED_BODY()
+
+public:
+	void Subscribe(UBattleSelectionComponent& Selection);
+
+	UFUNCTION()
+	void HandleSelectionChanged(ESelectionState State, AHeroUnit* Hero, int32 AbilityIndex);
+
+	UFUNCTION()
+	void HandleHoveredUnitChanged(ADungeonUnit* Unit);
+
+	// Параметры каждого OnSelectionChanged по порядку прихода
+	TArray<ESelectionState> States;
+	TArray<TWeakObjectPtr<AHeroUnit>> Heroes;
+	TArray<int32> Abilities;
+
+	// Юниты каждого OnHoveredUnitChanged (nullptr - юнита нет)
+	TArray<TWeakObjectPtr<ADungeonUnit>> HoveredUnits;
 
 	void Reset();
 };

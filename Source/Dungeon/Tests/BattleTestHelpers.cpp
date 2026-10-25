@@ -1,5 +1,6 @@
 #include "Tests/BattleTestHelpers.h"
 #include "Battle/BattleSubsystem.h"
+#include "Input/BattleSelectionComponent.h"
 
 void UBattleEventRecorder::Subscribe(UBattleSubsystem& Battle)
 {
@@ -115,6 +116,32 @@ void UBattleEventRecorder::Reset()
 	IntentsChangedCount = 0;
 	EndedResults.Reset();
 	PhaseChangesAtBattleEnd = INDEX_NONE;
+}
+
+void USelectionEventRecorder::Subscribe(UBattleSelectionComponent& Selection)
+{
+	Selection.OnSelectionChanged.AddDynamic(this, &USelectionEventRecorder::HandleSelectionChanged);
+	Selection.OnHoveredUnitChanged.AddDynamic(this, &USelectionEventRecorder::HandleHoveredUnitChanged);
+}
+
+void USelectionEventRecorder::HandleSelectionChanged(ESelectionState State, AHeroUnit* Hero, int32 AbilityIndex)
+{
+	States.Add(State);
+	Heroes.Add(Hero);
+	Abilities.Add(AbilityIndex);
+}
+
+void USelectionEventRecorder::HandleHoveredUnitChanged(ADungeonUnit* Unit)
+{
+	HoveredUnits.Add(Unit);
+}
+
+void USelectionEventRecorder::Reset()
+{
+	States.Reset();
+	Heroes.Reset();
+	Abilities.Reset();
+	HoveredUnits.Reset();
 }
 
 #if WITH_DEV_AUTOMATION_TESTS

@@ -34,7 +34,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> SelectAction;
 
-	// IA_ConfirmMove
+	// IA_Confirm (был IA_ConfirmMove; ассет переименовывается в задаче 7.3)
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> ConfirmAction;
 
@@ -50,8 +50,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UBattleSelectionComponent> Selection;
 
-	// Цель прошлого PlayerTick, чтобы обрабатывать наведение только при смене клетки
-	FCursorTarget LastHoverTarget;
+	// Для HUD
+	UBattleSelectionComponent* GetSelection() const;
+
+	// Цель прошлого PlayerTick (клетка, bOnGrid, юнит), чтобы обрабатывать наведение только при её смене.
+	// Нужна для повторной обработки наведения после изменения поля
+	FCursorTarget GetLastHoverTarget() const;
 
 protected:
 	virtual void BeginPlay() override;
@@ -64,4 +68,6 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UBattleHUDWidget> HUD;
+
+	FCursorTarget LastHoverTarget;
 };

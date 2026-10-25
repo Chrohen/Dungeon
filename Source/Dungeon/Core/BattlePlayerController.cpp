@@ -98,13 +98,25 @@ void ABattlePlayerController::PlayerTick(float DeltaTime)
 	}
 
 	const FCursorTarget Target = ResolveCursorTarget();
-	const bool bTileChanged = Target.bOnGrid != LastHoverTarget.bOnGrid
-		|| (Target.bOnGrid && Target.Tile != LastHoverTarget.Tile);
-	if (bTileChanged)
+	// Наведение обрабатывается при смене клетки, bOnGrid или юнита под курсором
+	const bool bChanged = Target.bOnGrid != LastHoverTarget.bOnGrid
+		|| (Target.bOnGrid && Target.Tile != LastHoverTarget.Tile)
+		|| Target.Unit != LastHoverTarget.Unit;
+	if (bChanged)
 	{
 		LastHoverTarget = Target;
 		Selection->HandleHover(Target);
 	}
+}
+
+UBattleSelectionComponent* ABattlePlayerController::GetSelection() const
+{
+	return Selection;
+}
+
+FCursorTarget ABattlePlayerController::GetLastHoverTarget() const
+{
+	return LastHoverTarget;
 }
 
 FCursorTarget ABattlePlayerController::ResolveCursorTarget() const
