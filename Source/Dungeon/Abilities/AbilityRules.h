@@ -19,6 +19,16 @@ public:
 	// Шаг на одну клетку, для None - (0,0)
 	static FIntPoint DirectionToOffset(EGridDirection Dir);
 
+	// Шаг смещения на одну клетку для Push с направлением AwayFromSource, TowardSource или AwayFromCenter:
+	// по оси с большей разностью координат (TD, раздел 13). (0,0), если клетки совпадают или разности равны.
+	// Для AbilityDirection возвращает (0,0): шаг даёт направление применения. Единственное место правила смещения:
+	// им пользуются Simulate и отображение намерений
+	static FIntPoint GetPushStep(EPushDirection PushDirection, FIntPoint SourcePos, FIntPoint TargetPoint, FIntPoint Position);
+
+	// Сумма Amount эффектов Damage, чья часть области содержит клетку. Фильтр целей и урон столкновения
+	// не учитываются: это оценка намерения для числа на клетке, а не результат (его считает Simulate)
+	static int32 GetAreaDamage(const FResolvedAbility& A, const FAffectedArea& Area, FIntPoint Tile);
+
 	// Поворот смещения шаблона, заданного для Right, по часовой стрелке (ось Y направлена вниз).
 	// Для None и Right смещение не меняется
 	static FIntPoint RotateOffset(FIntPoint OffsetForRight, EGridDirection Dir);

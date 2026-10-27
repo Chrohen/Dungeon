@@ -16,21 +16,6 @@ DEFINE_LOG_CATEGORY(LogDungeonBattle);
 
 namespace
 {
-	// Шаг на одну клетку от опорной клетки к позиции по оси с большей разностью координат.
-	// (0,0), если клетки совпадают или разности равны (TD, раздел 13, п. 10). Нужен только стрелкам намерений:
-	// само смещение считает FAbilityRules::Simulate
-	FIntPoint IntentStepAwayFrom(FIntPoint Reference, FIntPoint Position)
-	{
-		const FIntPoint Delta = Position - Reference;
-		const int32 AbsX = FMath::Abs(Delta.X);
-		const int32 AbsY = FMath::Abs(Delta.Y);
-		if (AbsX == AbsY)
-		{
-			return FIntPoint::ZeroValue;
-		}
-		return AbsX > AbsY ? FIntPoint(FMath::Sign(Delta.X), 0) : FIntPoint(0, FMath::Sign(Delta.Y));
-	}
-
 	int32 SumCooldowns(const ADungeonUnit& Unit)
 	{
 		int32 Sum = 0;
@@ -573,14 +558,7 @@ void UBattleSubsystem::RebuildIntentViews()
 		// (на ней действуют другие эффекты: смещение, лечение)
 		for (const FIntPoint& Tile : IntentCast.Area.GetAllTiles())
 		{
-			int32 Damage = 0;
-			for (const FAbilityEffect& Effect : Ability.Effects)
-			{
-				if (Effect.Type == EAbilityEffectType::Damage && IntentCast.Area.Contains(Tile, Effect.AreaPart))
-				{
-					Damage += Effect.Amount;
-				}
-			}
+			const int32 Damage = FAbilityRules::GetAreaDamage(Ability, IntentCast.Area, Tile);
 			FIntentTileDamage Entry;
 			Entry.Tile = Tile;
 			Entry.Damage = Damage;
@@ -614,21 +592,7 @@ void UBattleSubsystem::RebuildIntentViews()
 				{
 					continue;
 				}
-				FIntPoint Step = FIntPoint::ZeroValue;
-				switch (Effect.PushDirection)
-				{
-				case EPushDirection::AwayFromSource:
-					Step = IntentStepAwayFrom(IntentCast.SourcePosition, Tile);
-					break;
-				case EPushDirection::TowardSource:
-					Step = FIntPoint::ZeroValue - IntentStepAwayFrom(IntentCast.SourcePosition, Tile);
-					break;
-				case EPushDirection::AwayFromCenter:
-					Step = IntentStepAwayFrom(IntentCast.TargetPoint, Tile);
-					break;
-				default:
-					break;
-				}
+				const FIntPoint Step = FAbilityRules::GetPushStep(Effect.PushDirection, IntentCast.SourcePosition, IntentCast.TargetPoint, Tile);
 				if (Step != FIntPoint::ZeroValue)
 				{
 					FIntentPushMark Mark;

@@ -8,7 +8,8 @@
 struct FSimUnit
 {
 	int32 UnitId = INDEX_NONE;
-	EUnitTeam Team = EUnitTeam::Hero;
+	// Команду всегда задаёт сборщик снимка. Правила сравнивают её только с командой источника
+	EUnitTeam Team = EUnitTeam();
 	FIntPoint Position = FIntPoint::ZeroValue;
 	int32 Health = 1;
 	int32 MaxHealth = 1;

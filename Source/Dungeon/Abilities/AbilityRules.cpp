@@ -41,6 +41,47 @@ FIntPoint FAbilityRules::DirectionToOffset(EGridDirection Dir)
 	}
 }
 
+FIntPoint FAbilityRules::GetPushStep(EPushDirection PushDirection, FIntPoint SourcePos, FIntPoint TargetPoint, FIntPoint Position)
+{
+	// Шаг от опорной клетки к позиции по оси с большей разностью координат
+	auto StepAway = [](FIntPoint Reference, FIntPoint Pos)
+	{
+		const FIntPoint Delta = Pos - Reference;
+		const int32 AbsX = FMath::Abs(Delta.X);
+		const int32 AbsY = FMath::Abs(Delta.Y);
+		if (AbsX == AbsY)
+		{
+			return FIntPoint::ZeroValue;
+		}
+		return AbsX > AbsY ? FIntPoint(FMath::Sign(Delta.X), 0) : FIntPoint(0, FMath::Sign(Delta.Y));
+	};
+
+	switch (PushDirection)
+	{
+	case EPushDirection::AwayFromSource:
+		return StepAway(SourcePos, Position);
+	case EPushDirection::TowardSource:
+		return FIntPoint::ZeroValue - StepAway(SourcePos, Position);
+	case EPushDirection::AwayFromCenter:
+		return StepAway(TargetPoint, Position);
+	default:
+		return FIntPoint::ZeroValue;
+	}
+}
+
+int32 FAbilityRules::GetAreaDamage(const FResolvedAbility& A, const FAffectedArea& Area, FIntPoint Tile)
+{
+	int32 Damage = 0;
+	for (const FAbilityEffect& Effect : A.Effects)
+	{
+		if (Effect.Type == EAbilityEffectType::Damage && Area.Contains(Tile, Effect.AreaPart))
+		{
+			Damage += Effect.Amount;
+		}
+	}
+	return Damage;
+}
+
 FIntPoint FAbilityRules::RotateOffset(FIntPoint OffsetForRight, EGridDirection Dir)
 {
 	const int32 A = OffsetForRight.X;
@@ -332,20 +373,6 @@ namespace
 		}
 	}
 
-	// Шаг на одну клетку от опорной клетки к юниту по оси с большей разностью координат.
-	// (0,0), если клетки совпадают или разности равны (TD, раздел 13)
-	FIntPoint StepAwayFrom(FIntPoint Reference, FIntPoint Position)
-	{
-		const FIntPoint Delta = Position - Reference;
-		const int32 AbsX = FMath::Abs(Delta.X);
-		const int32 AbsY = FMath::Abs(Delta.Y);
-		if (AbsX == AbsY)
-		{
-			return FIntPoint::ZeroValue;
-		}
-		return AbsX > AbsY ? FIntPoint(FMath::Sign(Delta.X), 0) : FIntPoint(0, FMath::Sign(Delta.Y));
-	}
-
 	void ApplyDamageEffect(FBattleSimState& S, const FAbilityCast& Cast, int32 EffectIndex, int32 UnitId, int32 Amount, bool bCollision, FAbilityOutcome& Out)
 	{
 		int32 Lost = 0;
@@ -388,15 +415,15 @@ namespace
 				Key = Position.X * Step.X + Position.Y * Step.Y;
 				break;
 			case EPushDirection::AwayFromSource:
-				Step = StepAwayFrom(SourcePos, Position);
+				Step = FAbilityRules::GetPushStep(Effect.PushDirection, SourcePos, Cast.TargetPoint, Position);
 				Key = FAbilityRules::Distance(Position, SourcePos);
 				break;
 			case EPushDirection::TowardSource:
-				Step = FIntPoint::ZeroValue - StepAwayFrom(SourcePos, Position);
+				Step = FAbilityRules::GetPushStep(Effect.PushDirection, SourcePos, Cast.TargetPoint, Position);
 				Key = -FAbilityRules::Distance(Position, SourcePos);
 				break;
 			case EPushDirection::AwayFromCenter:
-				Step = StepAwayFrom(Cast.TargetPoint, Position);
+				Step = FAbilityRules::GetPushStep(Effect.PushDirection, SourcePos, Cast.TargetPoint, Position);
 				Key = FAbilityRules::Distance(Position, Cast.TargetPoint);
 				break;
 			}

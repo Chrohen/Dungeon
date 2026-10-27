@@ -837,6 +837,49 @@ void FAbilityEffectsSpec::Define()
 			TestFalse("unknown unit", Outcome.GetFinalPosition(99, Final));
 		});
 	});
+
+	Describe("FAbilityRules helpers shared with the intent display", [this]()
+	{
+		It("GetPushStep goes along the axis with the larger difference", [this]()
+		{
+			const FIntPoint Source(2, 2);
+			TestEqual("away, right", FAbilityRules::GetPushStep(EPushDirection::AwayFromSource, Source, FIntPoint(2, 2), FIntPoint(5, 3)), FIntPoint(1, 0));
+			TestEqual("away, up", FAbilityRules::GetPushStep(EPushDirection::AwayFromSource, Source, FIntPoint(2, 2), FIntPoint(1, 0)), FIntPoint(0, -1));
+			TestEqual("toward, left", FAbilityRules::GetPushStep(EPushDirection::TowardSource, Source, FIntPoint(2, 2), FIntPoint(5, 3)), FIntPoint(-1, 0));
+			TestEqual("equal differences: no step", FAbilityRules::GetPushStep(EPushDirection::AwayFromSource, Source, FIntPoint(2, 2), FIntPoint(4, 4)), FIntPoint::ZeroValue);
+			TestEqual("same tile: no step", FAbilityRules::GetPushStep(EPushDirection::AwayFromSource, Source, FIntPoint(2, 2), Source), FIntPoint::ZeroValue);
+			TestEqual("from the center, not from the source", FAbilityRules::GetPushStep(EPushDirection::AwayFromCenter, Source, FIntPoint(6, 6), FIntPoint(6, 4)), FIntPoint(0, -1));
+			TestEqual("AbilityDirection has no step", FAbilityRules::GetPushStep(EPushDirection::AbilityDirection, Source, FIntPoint(2, 2), FIntPoint(5, 3)), FIntPoint::ZeroValue);
+		});
+
+		It("GetPushStep matches the displacement made by Simulate", [this]()
+		{
+			Bed.AddUnit(2, EUnitTeam::Monster, FIntPoint(3, 1), 5);
+			Setup(ETargetingShape::Cross, 1, 3);
+			Ability.Effects = { MakePush(EPushDirection::AwayFromSource, 1) };
+			Run(FIntPoint(3, 1));
+			FIntPoint Final;
+			TestTrue("pushed", Outcome.GetFinalPosition(2, Final));
+			TestEqual("same as the step", Final, FIntPoint(3, 1) + FAbilityRules::GetPushStep(EPushDirection::AwayFromSource, FIntPoint(1, 1), FIntPoint(3, 1), FIntPoint(3, 1)));
+		});
+
+		It("GetAreaDamage sums the Damage effects whose part contains the tile", [this]()
+		{
+			FResolvedAbility Fireball;
+			Fireball.Effects = { MakeDamage(2), MakeDamage(1) };
+			Fireball.Effects[0].AreaPart = EAreaPart::Center;
+			Fireball.Effects[1].AreaPart = EAreaPart::Edge;
+			FAffectedArea Area;
+			Area.Center = FIntPoint(4, 4);
+			Area.bHasCenter = true;
+			Area.Edge = { FIntPoint(3, 4), FIntPoint(5, 4) };
+			TestEqual("center", FAbilityRules::GetAreaDamage(Fireball, Area, FIntPoint(4, 4)), 2);
+			TestEqual("edge", FAbilityRules::GetAreaDamage(Fireball, Area, FIntPoint(3, 4)), 1);
+			TestEqual("outside", FAbilityRules::GetAreaDamage(Fireball, Area, FIntPoint(0, 0)), 0);
+			Fireball.Effects[1].AreaPart = EAreaPart::All;
+			TestEqual("All part adds to the center", FAbilityRules::GetAreaDamage(Fireball, Area, FIntPoint(4, 4)), 3);
+		});
+	});
 }
 
 #endif // WITH_DEV_AUTOMATION_TESTS
