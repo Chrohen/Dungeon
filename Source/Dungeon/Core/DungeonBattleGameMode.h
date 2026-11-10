@@ -30,7 +30,25 @@ public:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Battle")
 	TObjectPtr<ADungeonGridActor> GridActor;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")
+	bool bAutoSaveEnabled = true;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")
+	bool bResumeSavedBattle = true;
+
+	// PIE uses a separate slot. Editor sessions cannot replace the game save.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save")
+	FString SaveSlotName = TEXT("Dungeon_Autosave");
+
+	UFUNCTION(BlueprintCallable, Category = "Save")
+	bool LoadSavedBattle();
+
 	// //CURRENT-STAGE: перезапускает бой на том же поле (StartBattle с теми же конфигом и актёром сетки).
 	// Его вызывают все кнопки окна завершения боя. Без конфига или поля пишет ошибку и ничего не делает
+	UFUNCTION(BlueprintCallable, Category = "Battle")
 	void RestartBattle();
+
+private:
+	FString GetSaveSlot() const;
+	void CenterCamera() const;
 };

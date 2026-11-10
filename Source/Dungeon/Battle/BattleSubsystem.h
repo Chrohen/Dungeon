@@ -17,6 +17,7 @@ class UBattlePhase;
 class UBattleRulesConfig;
 class UBattlefieldConfig;
 class UUnitDefinition;
+class UDungeonSaveGame;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogDungeonBattle, Log, All);
 
@@ -44,6 +45,23 @@ public:
 	// Сбрасывает состояние, создаёт фазы, вызывает OnBattleStarted и запускает Preparation.
 	// При повторном вызове уничтожает юнитов прошлого боя и освобождает их клетки
 	void StartBattle(UBattlefieldConfig* InConfig, ADungeonGridActor* InGrid);
+
+	// Enable disk writes for this world. Test worlds do not save by default.
+	void ConfigureAutoSave(const FString& SlotName, bool bEnabled);
+
+	bool CaptureSave(UDungeonSaveGame& Out, FString& Error) const;
+	static bool ValidateSave(const UDungeonSaveGame& Save, FString& Error);
+	bool RestoreSave(const UDungeonSaveGame& Save, ADungeonGridActor* InGrid, FString& Error);
+
+	// Save only a complete player turn state or a finished battle.
+	UFUNCTION(BlueprintCallable, Category = "Save")
+	bool SaveBattle();
+
+	UFUNCTION(BlueprintCallable, Category = "Save")
+	bool LoadBattle(ADungeonGridActor* InGrid);
+
+	UPROPERTY(BlueprintReadOnly, Category = "Save")
+	FString LastSaveError;
 
 	// Вызывает CanExecute, затем Execute, если проверка вернула Success, и после Execute - CheckBattleEnd().
 	// Возвращает результат проверки. Ссылку на действие не хранит. Для пустого действия возвращает InvalidUnit
@@ -162,6 +180,14 @@ public:
 	FOnBattleEnded OnBattleEnded;
 
 private:
+	void ResetBattleState(UBattlefieldConfig* InConfig, ADungeonGridActor* InGrid);
+	void AutoSaveCheckpoint();
+
+	FString AutoSaveSlot;
+	bool bAutoSaveEnabled = false;
+	bool bRestoringSave = false;
+	bool bApplyingAction = false;
+
 	// Закрытые методы и поля меняют служебное состояние боя: их вызывают только фазы и действия
 	friend class UPreparationPhase;
 	friend class UMonsterStepPhase;

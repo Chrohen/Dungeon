@@ -11,6 +11,8 @@
 #include "Units/HeroUnit.h"
 #include "Units/MonsterUnit.h"
 #include "Engine/World.h"
+#include "Save/DungeonSaveGame.h"
+#include "Save/DungeonSaveStorage.h"
 
 DEFINE_LOG_CATEGORY(LogDungeonBattle);
 
@@ -34,12 +36,22 @@ bool UBattleSubsystem::DoesSupportWorldType(const EWorldType::Type WorldType) co
 
 void UBattleSubsystem::StartBattle(UBattlefieldConfig* InConfig, ADungeonGridActor* InGrid)
 {
+	if (bRestoringSave)
+	{
+		return;
+	}
 	if (InConfig == nullptr || InGrid == nullptr)
 	{
 		UE_LOG(LogDungeonBattle, Error, TEXT("StartBattle: Config and Grid must be set."));
 		return;
 	}
+	ResetBattleState(InConfig, InGrid);
+	OnBattleStarted.Broadcast();
+	TransitionTo(EBattlePhase::Preparation);
+}
 
+void UBattleSubsystem::ResetBattleState(UBattlefieldConfig* InConfig, ADungeonGridActor* InGrid)
+{
 	// Прошлый бой: фаза сбрасывает свой таймер, юниты уничтожаются, их клетки освобождаются
 	if (const TObjectPtr<UBattlePhase>* OldPhase = Phases.Find(CurrentPhase))
 	{
@@ -91,12 +103,14 @@ void UBattleSubsystem::StartBattle(UBattlefieldConfig* InConfig, ADungeonGridAct
 		Phases.Add(Phase->GetPhaseType(), Phase);
 	}
 
-	OnBattleStarted.Broadcast();
-	TransitionTo(EBattlePhase::Preparation);
 }
 
 EBattleActionResult UBattleSubsystem::TryExecute(UBattleAction* Action)
 {
+	if (bRestoringSave)
+	{
+		return EBattleActionResult::InvalidPhase;
+	}
 	if (Action == nullptr)
 	{
 		UE_LOG(LogDungeonBattle, Warning, TEXT("TryExecute: Action is null."));
@@ -106,15 +120,23 @@ EBattleActionResult UBattleSubsystem::TryExecute(UBattleAction* Action)
 	const EBattleActionResult CheckResult = Action->CanExecute(*this);
 	if (CheckResult == EBattleActionResult::Success)
 	{
-		Action->Execute(*this);
-		CheckBattleEnd();
+		const bool bPlayerAction = IsPlayerTurn();
+		{
+			TGuardValue<bool> ActionGuard(bApplyingAction, true);
+			Action->Execute(*this);
+			CheckBattleEnd();
+		}
+		if (bPlayerAction || IsBattleOver())
+		{
+			AutoSaveCheckpoint();
+		}
 	}
 	return CheckResult;
 }
 
 void UBattleSubsystem::EndPlayerTurn()
 {
-	if (IsPlayerTurn())
+	if (!bRestoringSave && IsPlayerTurn())
 	{
 		AdvancePhase();
 	}
@@ -122,6 +144,10 @@ void UBattleSubsystem::EndPlayerTurn()
 
 void UBattleSubsystem::AdvancePhase()
 {
+	if (bRestoringSave)
+	{
+		return;
+	}
 	if (Result != EBattleResult::None)
 	{
 		return; // бой завершён или завершается
@@ -163,6 +189,10 @@ void UBattleSubsystem::TransitionTo(EBattlePhase Next)
 		SetPhase((*Current)->GetNextPhase());
 	}
 	bIsTransitioning = false;
+	if (CurrentPhase == EBattlePhase::PlayerTurn || CurrentPhase == EBattlePhase::Finished)
+	{
+		AutoSaveCheckpoint();
+	}
 }
 
 void UBattleSubsystem::SetPhase(EBattlePhase Next)
@@ -205,10 +235,15 @@ void UBattleSubsystem::FinishBattle(EBattleResult InResult)
 	}
 	SetPhase(EBattlePhase::Finished);
 	OnBattleEnded.Broadcast(Result);
+	AutoSaveCheckpoint();
 }
 
 bool UBattleSubsystem::CheckBattleEnd()
 {
+	if (bRestoringSave)
+	{
+		return IsBattleOver();
+	}
 	if (CurrentPhase == EBattlePhase::None || CurrentPhase == EBattlePhase::Finished)
 	{
 		return IsBattleOver();
@@ -230,6 +265,52 @@ bool UBattleSubsystem::CheckBattleEnd()
 		return true;
 	}
 	return false;
+}
+
+void UBattleSubsystem::ConfigureAutoSave(const FString& SlotName, bool bEnabled)
+{
+	AutoSaveSlot = SlotName;
+	bAutoSaveEnabled = bEnabled;
+}
+
+void UBattleSubsystem::AutoSaveCheckpoint()
+{
+	if (bAutoSaveEnabled && !bRestoringSave && !bApplyingAction && !bIsTransitioning)
+	{
+		SaveBattle();
+	}
+}
+
+bool UBattleSubsystem::SaveBattle()
+{
+	if (bRestoringSave || bApplyingAction || bIsTransitioning)
+	{
+		LastSaveError = TEXT("The battle is changing. Wait for the action to finish.");
+		return false;
+	}
+	UDungeonSaveGame* Save = NewObject<UDungeonSaveGame>();
+	if (!CaptureSave(*Save, LastSaveError) || !FDungeonSaveStorage::Save(AutoSaveSlot, *Save, LastSaveError))
+	{
+		UE_LOG(LogDungeonBattle, Warning, TEXT("SaveBattle: %s"), *LastSaveError);
+		return false;
+	}
+	return true;
+}
+
+bool UBattleSubsystem::LoadBattle(ADungeonGridActor* InGrid)
+{
+	if (bRestoringSave || bApplyingAction || bIsTransitioning)
+	{
+		LastSaveError = TEXT("The battle is changing. Wait for the action to finish.");
+		return false;
+	}
+	UDungeonSaveGame* Save = FDungeonSaveStorage::Load(AutoSaveSlot, LastSaveError);
+	if (Save == nullptr || !RestoreSave(*Save, InGrid, LastSaveError))
+	{
+		UE_LOG(LogDungeonBattle, Warning, TEXT("LoadBattle: %s"), *LastSaveError);
+		return false;
+	}
+	return true;
 }
 
 ADungeonUnit* UBattleSubsystem::SpawnUnit(UUnitDefinition* Def, FIntPoint Coord)
