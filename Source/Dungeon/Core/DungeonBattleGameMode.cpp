@@ -5,6 +5,8 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "Grid/DungeonGridActor.h"
+#include "Kismet/GameplayStatics.h"
+#include "Misc/PackageName.h"
 #include "Save/DungeonSaveStorage.h"
 
 ADungeonBattleGameMode::ADungeonBattleGameMode()
@@ -42,7 +44,10 @@ void ADungeonBattleGameMode::StartPlay()
 	GridActor = Grid;
 
 	Battle->ConfigureAutoSave(GetSaveSlot(), bAutoSaveEnabled && !GIsAutomationTesting);
-	if (!GIsAutomationTesting && bResumeSavedBattle && FDungeonSaveStorage::Exists(GetSaveSlot()))
+	const bool bNewGameRequested = UGameplayStatics::HasOption(OptionsString, TEXT("DungeonNewGame"));
+	const bool bContinueRequested = !bNewGameRequested && UGameplayStatics::HasOption(OptionsString, TEXT("DungeonContinue"));
+	const bool bImplicitResume = !bNewGameRequested && bResumeSavedBattle && FDungeonSaveStorage::Exists(GetSaveSlot());
+	if (!GIsAutomationTesting && (bContinueRequested || bImplicitResume))
 	{
 		if (Battle->LoadBattle(Grid))
 		{
@@ -51,6 +56,23 @@ void ADungeonBattleGameMode::StartPlay()
 		}
 		// Keep a failed save until the player starts a new battle explicitly.
 		Battle->ConfigureAutoSave(GetSaveSlot(), false);
+		if (bContinueRequested)
+		{
+			FString MenuPackage = UGameplayStatics::ParseOption(OptionsString, TEXT("DungeonMenu"));
+			if (MenuPackage.IsEmpty())
+			{
+				MenuPackage = TEXT("/Game/Maps/L_MainMenu");
+			}
+			if (FPackageName::DoesPackageExist(MenuPackage))
+			{
+				UGameplayStatics::OpenLevel(this, FName(*MenuPackage), true, TEXT("DungeonLoadFailed"));
+			}
+			else
+			{
+				UE_LOG(LogDungeonBattle, Error, TEXT("Continue failed, and the menu map is unavailable: %s"), *MenuPackage);
+			}
+			return;
+		}
 		UE_LOG(LogDungeonBattle, Warning, TEXT("The saved battle could not be loaded. Autosave is disabled until RestartBattle."));
 	}
 	CenterCamera();
@@ -74,7 +96,13 @@ void ADungeonBattleGameMode::CenterCamera() const
 
 FString ADungeonBattleGameMode::GetSaveSlot() const
 {
-	return SaveSlotName + (GetWorld() != nullptr && GetWorld()->WorldType == EWorldType::PIE ? TEXT("_PIE") : TEXT(""));
+	return ResolveSaveSlot(GetWorld(), SaveSlotName);
+}
+
+FString ADungeonBattleGameMode::ResolveSaveSlot(const UWorld* World, const FString& BaseSlot)
+{
+	return BaseSlot.IsEmpty() ? FString()
+		: BaseSlot + (World != nullptr && World->WorldType == EWorldType::PIE ? TEXT("_PIE") : TEXT(""));
 }
 
 bool ADungeonBattleGameMode::LoadSavedBattle()

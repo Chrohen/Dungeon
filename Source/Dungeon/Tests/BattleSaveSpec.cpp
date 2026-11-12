@@ -197,7 +197,7 @@ void FBattleSaveSpec::Define()
 		if (!Start(HeroStrike, 200)) return;
 		if (!TestEqual(TEXT("first wave has one monster"), Battle->GetLivingMonsters().Num(), 1)) return;
 		AHeroUnit* Hero = Battle->GetHeroes()[0];
-		const int32 HeroId = Hero->UnitId;
+		const int32 SavedHeroUnitId = Hero->UnitId;
 		TestEqual(TEXT("hero uses ability"), Use(Hero, Battle->GetLivingMonsters()[0]->GridPosition), EBattleActionResult::Success);
 		TStrongObjectPtr<UDungeonSaveGame> Checkpoint(NewObject<UDungeonSaveGame>());
 		if (!Capture(*Checkpoint)) return;
@@ -210,7 +210,7 @@ void FBattleSaveSpec::Define()
 		Compare(*Expected, *Actual);
 		TestEqual(TEXT("all three waves appeared"), Actual->CurrentWave, 3);
 		TestEqual(TEXT("cooldown 2 is ready on turn 4"), Actual->TurnNumber, 4);
-		ADungeonUnit* RestoredHero = Battle->FindUnitById(HeroId);
+		ADungeonUnit* RestoredHero = Battle->FindUnitById(SavedHeroUnitId);
 		if (TestNotNull(TEXT("hero keeps the same ID"), RestoredHero))
 		{
 			TestEqual(TEXT("cooldown is zero"), RestoredHero->Abilities[0].RemainingCooldown, 0);

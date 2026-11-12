@@ -43,6 +43,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Save")
 	bool LoadSavedBattle();
 
+	// Menu and battle worlds must use the same slot policy.
+	static FString ResolveSaveSlot(const UWorld* World, const FString& BaseSlot);
+
 	// //CURRENT-STAGE: перезапускает бой на том же поле (StartBattle с теми же конфигом и актёром сетки).
 	// Его вызывают все кнопки окна завершения боя. Без конфига или поля пишет ошибку и ничего не делает
 	UFUNCTION(BlueprintCallable, Category = "Battle")
